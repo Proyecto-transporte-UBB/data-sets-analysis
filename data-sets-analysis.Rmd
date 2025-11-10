@@ -1,0 +1,116 @@
+---
+title: "data-sets-analysis"
+author: "Luciano Hernández"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(knitr)
+library(googlesheets4)
+library(readxl)
+library(ggplot2)
+library(sf)
+library(ggspatial)
+library(prettymapr)
+```
+
+```{r getData, include=FALSE}
+# Siniestros buses interurbanos(1).xlsx
+interurban.bus.accidents <- read_excel("data/Siniestros buses interurbanos(1).xlsx", 
+    col_types = c("numeric", "numeric", "date", 
+        "date", "numeric", "text", "text", 
+        "text", "text", "text", "text", "text", 
+        "text", "text", "text", "text", "numeric", 
+        "text", "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric"))
+interurban.bus.accidents$Fecha <- paste(interurban.bus.accidents$Fecha, interurban.bus.accidents$Hora %>% format(format = "%H:%M:%S")) %>% as.POSIXct(format = "%Y-%m-%d %H:%M")
+interurban.bus.accidents <- interurban.bus.accidents %>% select(-Hora)
+interurban.bus.accidents$Región <- interurban.bus.accidents$Región %>% as.factor()
+interurban.bus.accidents$Comuna <- interurban.bus.accidents$Comuna %>% as.factor()
+interurban.bus.accidents$`Tipo Accidente` <- interurban.bus.accidents$`Tipo Accidente` %>% as.factor()
+interurban.bus.accidents$`Tipo (CONASET)` <- interurban.bus.accidents$`Tipo (CONASET)` %>% as.factor()
+interurban.bus.accidents$Zona <- interurban.bus.accidents$Zona %>% as.factor()
+interurban.bus.accidents$`Ubicación Relativa` <- interurban.bus.accidents$`Ubicación Relativa` %>% as.factor()
+interurban.bus.accidents$`Causa (CONASET)` <- interurban.bus.accidents$`Causa (CONASET)` %>% as.factor()
+interurban.bus.accidents$`Causa Accidente` <- interurban.bus.accidents$`Causa Accidente` %>% as.factor()
+
+# GH026929.xlsx
+gh026929 <- read_excel("data/GH026929.xlsx", 
+    range = "A1:L1727", col_types = c("numeric", 
+        "date", "text", "numeric", "numeric", 
+        "numeric", "numeric", "skip", "skip", 
+        "numeric", "numeric", "numeric"))
+
+## ¿Qué es cts?
+## Rangos altura
+## ¿Qué es fix?
+## U.M. precision
+
+gh026929$date <- paste(gh026929$date, gh026929$hora) %>% as.POSIXct(format = "%Y-%m-%d %H:%M")
+gh026929 <- gh026929 %>% select(-hora)
+reduce.coords <- function(n) {
+  n * 10 ^ (1 - (n %>% abs() %>% log10() %>% floor()))
+}
+gh026929$`GPS (Lat.) [deg]` <- gh026929$`GPS (Lat.) [deg]` %>% reduce.coords()
+gh026929$`GPS (Long.) [deg]` <- gh026929$`GPS (Long.) [deg]` %>% reduce.coords()
+gh026929 %>% summary()
+
+# Data accidentes de carabineros.xlsx
+police.accidents <- read_excel("data/Data accidentes de carabineros.xlsx", 
+    col_types = c("numeric", "date", "skip", 
+        "date", "text", "text", "text", "text", 
+        "text", "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "text", "text", 
+        "text", "text", "text"))
+police.accidents$FECHA <- paste(police.accidents$FECHA, police.accidents$HORA %>% format(format = "%H:%M:%S")) %>% as.POSIXct(format = "%Y-%m-%d %H:%M")
+police.accidents <- police.accidents %>% select(-HORA)
+police.accidents$ZONA <- police.accidents$ZONA %>% as.factor()
+police.accidents$COMUNA <- police.accidents$COMUNA %>% as.factor()
+police.accidents$TIPO <- police.accidents$TIPO %>% as.factor()
+police.accidents$CAUSA <- police.accidents$CAUSA %>% as.factor()
+police.accidents$SECTOR <- police.accidents$SECTOR %>% as.factor()
+police.accidents$KM[!(police.accidents$KM %>% is.na())] <- police.accidents$KM[!(police.accidents$KM %>% is.na())] %>% as.numeric()
+police.accidents$PARTE <- police.accidents$PARTE %>% as.numeric()
+police.accidents %>% summary()
+
+# Incidentes de tráfico radio.xlsx
+
+file.path <- "data/Incidentes de tráfico radio.xlsx"
+sheet.names <- file.path %>% excel_sheets()
+date.sheets <- sheet.names[grepl("^\\d{1,2}-\\d{1,2}$", sheet.names)]
+radio.incidents <- list()
+for(sheet in date.sheets) {
+  df <- file.path %>% read_excel(sheet = sheet)
+  day.month <- (sheet %>% strsplit(., "-"))[[1]]
+  day <- day.month[1] %>% as.numeric()
+  month <- day.month[2] %>% as.numeric()
+  ## ¿De qué año es?
+  comp.date <- paste("2025", month, day, sep = "-") %>% as.Date()
+  df$fecha <- comp.date
+  df$`#ID` <- df$`#ID` %>% as.numeric()
+  df$Hora <- df$Hora %>% as.numeric() %>% as.POSIXct() %>% format(format = "%H:%M")
+  radio.incidents[[sheet]] <- df
+}
+radio.incidents$`22-07`$Hora %>% as.numeric() %>% as.POSIXct() %>% format(format = "%H:%M")
+radio.incidents.df <- radio.incidents %>% bind_rows()
+radio.incidents.df$coord[!(radio.incidents.df$lat %>% is.na())] <- radio.incidents.df$lat[!(radio.incidents.df$lat %>% is.na())]
+radio.incidents.df <- radio.incidents.df %>% select(-c(lat, `Tipo de incidente`, `tipo de incidente`, ...7, ...13))
+radio.incidents.df$dir[!(radio.incidents.df$...12 %>% is.na()) & (radio.incidents.df$dir %>% is.na())] <- radio.incidents.df$...12[!(radio.incidents.df$...12 %>% is.na()) & (radio.incidents.df$dir %>% is.na())]
+radio.incidents.df <- radio.incidents.df %>% select(-...12)
+radio.incidents.df$`Reporte completo? (SI/NO)`[(radio.incidents.df$`Reporte completo? (SI/NO)` %in% c("is", "si", "SI", "su")) %>% which()] = "SI"
+radio.incidents.df$`Reporte completo? (SI/NO)`[(radio.incidents.df$`Reporte completo? (SI/NO)` %in% c("no", "NO")) %>% which()] = "NO"
+radio.incidents.df$`Reporte completo? (SI/NO)`[(radio.incidents.df$`Reporte completo? (SI/NO)` == "-") %>% which()] = NA
+radio.incidents.df$`Reporte completo? (SI/NO)` <- radio.incidents.df$`Reporte completo? (SI/NO)` %>% as.factor()
+radio.incidents.df[!(radio.incidents.df$Localización %>% is.na()),] %>% apply(., 1, is.na) %>% colSums() %>% summary()
+radio.incidents.df %>% apply(., 1, is.na) %>% colSums() %>% summary()
+radio.incidents.df %>% summary()
+```
+
+```{r}
+
+```
+
