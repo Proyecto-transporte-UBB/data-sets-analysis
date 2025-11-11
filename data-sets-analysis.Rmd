@@ -18,6 +18,7 @@ library(prettymapr)
 library(tidyr)
 library(openxlsx)
 library(stringr)
+library(readr)
 load(".RData")
 ```
 
@@ -190,4 +191,11 @@ vega.speed.df %>% summary()
 
 ```{r getData4, include=FALSE}
 # tb_gps_historial_eventos_202509161626(1).csv
+gps.events <- read_file("data/tb_gps_historial_eventos_202509161626(1).csv") %>% str_replace_all(., "\";\"", " ") %>% str_replace_all(., ",", ";") %>% str_replace_all(., "\"", "") %>% read.table(text = ., sep = ";", header = T, stringsAsFactors = F)
+gps.events <- gps.events %>% select(-c(ubicacion_, velocidad_))
+gps.events$fecha_auto <- gps.events$fecha_auto %>% as.POSIXct(format = "%Y-%m-%d %H:%M:%S")
+gps.events$fecha_gps_ <- gps.events$fecha_gps_ %>% as.POSIXct(format = "%Y-%m-%d %H:%M:%S")
+gps.events$evento_ <- gps.events$evento_ %>% as.factor()
+gps.events$direccion_ <- gps.events$direccion_ %>% as.factor()
+gps.events %>% summary()
 ```
