@@ -15,9 +15,17 @@ library(ggplot2)
 library(sf)
 library(ggspatial)
 library(prettymapr)
+library(tidyr)
+library(openxlsx)
+library(stringr)
+load(".RData")
 ```
 
-```{r getData, include=FALSE}
+# Extraer datos
+
+## Siniestros buses interurbanos(1).xlsx
+
+```{r getData0, include=FALSE}
 # Siniestros buses interurbanos(1).xlsx
 interurban.bus.accidents <- read_excel("data/Siniestros buses interurbanos(1).xlsx", 
     col_types = c("numeric", "numeric", "date", 
@@ -37,7 +45,11 @@ interurban.bus.accidents$Zona <- interurban.bus.accidents$Zona %>% as.factor()
 interurban.bus.accidents$`Ubicación Relativa` <- interurban.bus.accidents$`Ubicación Relativa` %>% as.factor()
 interurban.bus.accidents$`Causa (CONASET)` <- interurban.bus.accidents$`Causa (CONASET)` %>% as.factor()
 interurban.bus.accidents$`Causa Accidente` <- interurban.bus.accidents$`Causa Accidente` %>% as.factor()
+```
 
+## GH026929.xlsx
+
+```{r getData1, include=FALSE}
 # GH026929.xlsx
 gh026929 <- read_excel("data/GH026929.xlsx", 
     range = "A1:L1727", col_types = c("numeric", 
@@ -58,7 +70,11 @@ reduce.coords <- function(n) {
 gh026929$`GPS (Lat.) [deg]` <- gh026929$`GPS (Lat.) [deg]` %>% reduce.coords()
 gh026929$`GPS (Long.) [deg]` <- gh026929$`GPS (Long.) [deg]` %>% reduce.coords()
 gh026929 %>% summary()
+```
 
+## Data accidentes de carabineros.xlsx
+
+```{r getData2, include=FALSE}
 # Data accidentes de carabineros.xlsx
 police.accidents <- read_excel("data/Data accidentes de carabineros.xlsx", 
     col_types = c("numeric", "date", "skip", 
@@ -76,13 +92,16 @@ police.accidents$SECTOR <- police.accidents$SECTOR %>% as.factor()
 police.accidents$KM[!(police.accidents$KM %>% is.na())] <- police.accidents$KM[!(police.accidents$KM %>% is.na())] %>% as.numeric()
 police.accidents$PARTE <- police.accidents$PARTE %>% as.numeric()
 police.accidents %>% summary()
+```
 
+## Incidentes de tráfico radio.xlsx
+
+```{r getData3, include=FALSE}
 # Incidentes de tráfico radio.xlsx
-
 file.path <- "data/Incidentes de tráfico radio.xlsx"
 sheet.names <- file.path %>% excel_sheets()
 date.sheets <- sheet.names[grepl("^\\d{1,2}-\\d{1,2}$", sheet.names)]
-radio.incidents <- list()
+radio.accidents <- list()
 for(sheet in date.sheets) {
   df <- file.path %>% read_excel(sheet = sheet)
   day.month <- (sheet %>% strsplit(., "-"))[[1]]
@@ -93,24 +112,82 @@ for(sheet in date.sheets) {
   df$fecha <- comp.date
   df$`#ID` <- df$`#ID` %>% as.numeric()
   df$Hora <- df$Hora %>% as.numeric() %>% as.POSIXct() %>% format(format = "%H:%M")
-  radio.incidents[[sheet]] <- df
+  radio.accidents[[sheet]] <- df
 }
-radio.incidents$`22-07`$Hora %>% as.numeric() %>% as.POSIXct() %>% format(format = "%H:%M")
-radio.incidents.df <- radio.incidents %>% bind_rows()
-radio.incidents.df$coord[!(radio.incidents.df$lat %>% is.na())] <- radio.incidents.df$lat[!(radio.incidents.df$lat %>% is.na())]
-radio.incidents.df <- radio.incidents.df %>% select(-c(lat, `Tipo de incidente`, `tipo de incidente`, ...7, ...13))
-radio.incidents.df$dir[!(radio.incidents.df$...12 %>% is.na()) & (radio.incidents.df$dir %>% is.na())] <- radio.incidents.df$...12[!(radio.incidents.df$...12 %>% is.na()) & (radio.incidents.df$dir %>% is.na())]
-radio.incidents.df <- radio.incidents.df %>% select(-...12)
-radio.incidents.df$`Reporte completo? (SI/NO)`[(radio.incidents.df$`Reporte completo? (SI/NO)` %in% c("is", "si", "SI", "su")) %>% which()] = "SI"
-radio.incidents.df$`Reporte completo? (SI/NO)`[(radio.incidents.df$`Reporte completo? (SI/NO)` %in% c("no", "NO")) %>% which()] = "NO"
-radio.incidents.df$`Reporte completo? (SI/NO)`[(radio.incidents.df$`Reporte completo? (SI/NO)` == "-") %>% which()] = NA
-radio.incidents.df$`Reporte completo? (SI/NO)` <- radio.incidents.df$`Reporte completo? (SI/NO)` %>% as.factor()
-radio.incidents.df[!(radio.incidents.df$Localización %>% is.na()),] %>% apply(., 1, is.na) %>% colSums() %>% summary()
-radio.incidents.df %>% apply(., 1, is.na) %>% colSums() %>% summary()
-radio.incidents.df %>% summary()
+radio.accidents.df <- radio.accidents %>% bind_rows()
+radio.accidents.df$coord[!(radio.accidents.df$lat %>% is.na())] <- radio.accidents.df$lat[!(radio.accidents.df$lat %>% is.na())]
+radio.accidents.df <- radio.accidents.df %>% select(-c(lat, `Tipo de incidente`, `tipo de incidente`, ...7, ...13))
+radio.accidents.df$dir[!(radio.accidents.df$...12 %>% is.na()) & (radio.accidents.df$dir %>% is.na())] <- radio.accidents.df$...12[!(radio.accidents.df$...12 %>% is.na()) & (radio.accidents.df$dir %>% is.na())]
+radio.accidents.df <- radio.accidents.df %>% select(-...12)
+radio.accidents.df$`Reporte completo? (SI/NO)`[(radio.accidents.df$`Reporte completo? (SI/NO)` %in% c("is", "si", "SI", "su")) %>% which()] = "SI"
+radio.accidents.df$`Reporte completo? (SI/NO)`[(radio.accidents.df$`Reporte completo? (SI/NO)` %in% c("no", "NO")) %>% which()] = "NO"
+radio.accidents.df$`Reporte completo? (SI/NO)`[(radio.accidents.df$`Reporte completo? (SI/NO)` == "-") %>% which()] = NA
+radio.accidents.df$`Reporte completo? (SI/NO)` <- radio.accidents.df$`Reporte completo? (SI/NO)` %>% as.factor()
+radio.accidents.df$`es incidente de tráfico? (si/no)`[(radio.accidents.df$`es incidente de tráfico? (si/no)` %in% c("si", "SI")) %>% which()] <- "SI"
+radio.accidents.df$`es incidente de tráfico? (si/no)`[(radio.accidents.df$`es incidente de tráfico? (si/no)` %in% c("no", "NO")) %>% which()] <- "NO"
+radio.accidents.df <- radio.accidents.df[!(radio.accidents.df$coord %>% is.na()),]
+radio.accidents.df <- radio.accidents.df %>% fill(Hora, .direction = "down")
+radio.accidents.df <- radio.accidents.df %>% separate(coord, into = c("lat", "lng"), sep = ",\\s*") %>% mutate(lat = lat %>% as.numeric(), lng = lng %>% as.numeric())
+radio.accidents.df <- radio.accidents.df[!(radio.accidents.df$lat %>% is.na()),]
+radio.accidents.df$Hora <- paste(radio.accidents.df$fecha, radio.accidents.df$Hora) %>% as.POSIXct(format = "%Y-%m-%d %H:%M")
+radio.accidents.df <- radio.accidents.df %>% select(-fecha)
+radio.accidents.df %>% summary()
 ```
 
-```{r}
+## Med velo CHIGUAYANTE.xlsx
 
+```{r getData3, include=FALSE}
+# Med velo CHIGUAYANTE.xlsx
+file.path <- "data/Med velo CHIGUAYANTE.xlsx"
+directions <- file.path %>% excel_sheets()
+chiguayante.speed <- list()
+for(sheet in directions) {
+  df <- file.path %>% read_excel(sheet = sheet)
+  ## ¿De qué fecha es?
+  df$dirección <- sheet
+  df$`Lugar (dirección)` <- df$`Lugar (dirección)`[!(df$`Lugar (dirección)` %>% is.na())] %>% paste(collapse = ", ")
+  chiguayante.speed[[sheet]] <- df
+}
+chiguayante.speed.df <- chiguayante.speed %>% bind_rows()
+chiguayante.speed.df <- chiguayante.speed.df %>% select(-c(...5, ...6, ...7, ...8, ...9, ...10, ...11, ...12, ...13))
+chiguayante.speed.df <- chiguayante.speed.df[!(chiguayante.speed.df$`Velocidad [km/hr]` %>% is.na()),]
+chiguayante.speed.df <- chiguayante.speed.df %>% fill(Hora, .direction = "down")
+chiguayante.speed.df$Comentario <- chiguayante.speed.df$Comentario %>% as.factor()
+chiguayante.speed.df$dirección <- chiguayante.speed.df$dirección %>% as.factor()
+chiguayante.speed.df$`Lugar (dirección)` <- chiguayante.speed.df$`Lugar (dirección)` %>% as.factor()
+chiguayante.speed.df %>% summary()
 ```
 
+## Med velo LA VEGA.xlsx
+
+```{r getData4, include=FALSE}
+#Med velo LA VEGA.xlsx
+file.path <- "data/Med velo LA VEGA.xlsx"
+sheets <- excel_sheets(file.path)
+directions <- sheets[grepl("21", sheets) & grepl("mayo", sheets)]
+vega.speed <- list()
+for(sheet in directions) {
+  df <- file.path %>% read.xlsx(sheet = sheet, colNames = T, fillMergedCells = TRUE, detectDates = T, skipEmptyCols = F, skipEmptyRows = F)
+  df <- df[, 2:5]
+  ## ¿De qué fecha es?
+  df$Hora[!(df$Hora %>% is.na()) & df$Hora %>% as.numeric() > 1 & !((!(df$Hora %>% is.na()) & df$Hora %>% as.numeric() > 1) %>% is.na())] <- df$Hora[!(df$Hora %>% is.na()) & df$Hora %>% as.numeric() > 1 & !((!(df$Hora %>% is.na()) & df$Hora %>% as.numeric() > 1) %>% is.na())] %>% as.numeric() %>% round(digits = 2) %>% as.character() %>% gsub("\\.", ":", .)
+  df$Hora <- df$Hora %>% as.numeric() %>% as.POSIXct(format = "%H:%M")
+  df$dirección <- sheet
+  df$`Lugar.(dirección)` <- df$`Lugar.(dirección)`[!(df$`Lugar.(dirección)` %>% is.na())] %>% paste(collapse = ", ")
+  vega.speed[[sheet]] <- df
+}
+vega.speed.df <- vega.speed %>% bind_rows()
+vega.speed.df <- vega.speed.df[!(vega.speed.df$`Velocidad.[km/hr]` %>% is.na()),]
+vega.speed.df <- vega.speed.df %>% fill(Hora, .direction = "down")
+vega.speed.df$Comentario <- vega.speed.df$Comentario %>% as.factor()
+vega.speed.df$`Lugar.(dirección)` <- vega.speed.df$`Lugar.(dirección)` %>% as.factor()
+vega.speed.df$`Lugar.(dirección)` <- vega.speed.df$`Lugar.(dirección)` %>% as.factor()
+vega.speed.df$dirección <- vega.speed.df$dirección %>% as.factor()
+vega.speed.df %>% summary()
+```
+
+## tb_gps_historial_eventos_202509161626(1).csv
+
+```{r getData4, include=FALSE}
+# tb_gps_historial_eventos_202509161626(1).csv
+```
