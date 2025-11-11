@@ -2,7 +2,10 @@
 title: "data-sets-analysis"
 author: "Luciano Hernández"
 date: "`r Sys.Date()`"
-output: pdf_document
+output:
+  pdf_document:
+    toc: true
+    toc_depth: 3
 ---
 
 ```{r setup, include=FALSE}
@@ -13,6 +16,7 @@ library(googlesheets4)
 library(readxl)
 library(ggplot2)
 library(sf)
+library(osmdata)
 library(ggspatial)
 library(prettymapr)
 library(tidyr)
@@ -20,6 +24,8 @@ library(openxlsx)
 library(stringr)
 library(readr)
 library(lubridate)
+library(ggmap)
+library(viridis)
 load(".RData")
 ```
 
@@ -367,3 +373,37 @@ waze.data %>% summary()
 
 - "Date" pasó de ser tipo "character" a tipo "Date"
 - "Country", "City", "Street" y "Cause" pasaron de ser tipo "character" a tipo "factor" para un mejor procesamiento
+
+# Visualizar datos
+
+## Mapas
+
+```{r visualizeData, include=FALSE}
+bbox <- c(
+  min(radio.accidents.df$lng, na.rm = TRUE) - 0.01,
+  min(radio.accidents.df$lat, na.rm = TRUE) - 0.01,
+  max(radio.accidents.df$lng, na.rm = TRUE) + 0.01,
+  max(radio.accidents.df$lat, na.rm = TRUE) + 0.01
+)
+streets <- opq(bbox = bbox) %>%
+  add_osm_feature(key = "highway") %>%
+  osmdata_sf()
+ggplot() +
+  geom_sf(data = streets$osm_lines, color = "gray50", size = 0.3, alpha = 0.7) +
+  stat_density_2d(
+    data = radio.accidents.df,
+    aes(x = lng, y = lat, fill = ..density..),
+    geom = "raster",
+    contour = FALSE,
+    alpha = 0.6
+  ) +
+  scale_fill_viridis_c(name = "Densidad") +
+  labs(
+    title = "Mapa de calor de densidad: Incidentes de tráfico de radio",
+    x = "Longitud",
+    y = "Latitud"
+  ) +
+  theme_minimal() +
+  coord_sf()
+```
+
