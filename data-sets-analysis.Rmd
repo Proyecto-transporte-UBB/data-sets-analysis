@@ -561,7 +561,7 @@ Hubo una gran cantidad de incidentes el día viernes 1ro de agosto a las 21 hora
 
 
 ```{r visualizeData, echo=FALSE}
-peak.radio <- radio.accidents.df[radio.accidents.df$Hora >= "2025-08-08 20:00" & radio.accidents.df$Hora <= "2025-08-08 22:00",]
+peak.radio <- radio.accidents.df[radio.accidents.df$Hora >= "2025-08-01 20:00" & radio.accidents.df$Hora <= "2025-08-01 22:00",]
 ggplot(peak.radio[!(peak.radio$dir %>% is.na()),]) +
   geom_bar(aes(x = dir))
 ```
