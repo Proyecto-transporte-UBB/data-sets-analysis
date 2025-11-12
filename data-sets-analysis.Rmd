@@ -1,5 +1,5 @@
 ---
-title: "data-sets-analysis"
+title: "Análisis de los Sets de Datos"
 author: "Luciano Hernández"
 date: "`r Sys.Date()`"
 output:
@@ -55,10 +55,47 @@ interurban.bus.accidents$Zona <- interurban.bus.accidents$Zona %>% as.factor()
 interurban.bus.accidents$`Ubicación Relativa` <- interurban.bus.accidents$`Ubicación Relativa` %>% as.factor()
 interurban.bus.accidents$`Causa (CONASET)` <- interurban.bus.accidents$`Causa (CONASET)` %>% as.factor()
 interurban.bus.accidents$`Causa Accidente` <- interurban.bus.accidents$`Causa Accidente` %>% as.factor()
+interurban.bus.accidents %>% summary()
+interurban.bus.accidents[interurban.bus.accidents$Zona == "RURAL",] %>% nrow() / interurban.bus.accidents %>% nrow() * 100
 ```
+### Resumen Ejecutivo
 
-- Se unieron "Fecha" y "Hora" en una misma columna
-- "Región", "Comuna", "Tipo Accidente", "Tipo (CONASET)", "Zona", "Ubicación Relativa", "Causa (CONASET)" y "Causa Accidente" pasaron de ser tipo "character" a tipo "factor" para un mejor procesamiento
+El análisis comprende 6268 registros de siniestros de buses interurbanos ocurridos entre el 1 de enero de 2014 y el 29 de diciembre de 2023.
+
+### Distribución Geográfica
+
+- **Regiones más afectadas**: Región Metropolitana (1285 casos), Región del Maule (835 casos) y Región del Biobío (767 casos)
+- **Comunas con mayor incidencia**: Curicó (244 siniestros), Valdivia (227) y Estación Central (186)
+
+### Características de los Siniestros
+
+- **Tipos predominantes**: Colisión (3655 casos), choque (1464) y atropello (448)
+- **Distribución por zona**: 4251 accidentes en zonas urbanas (67.82%) versus 2,017 en zonas rurales (32.18%)
+
+### Factores Causales
+
+- **Principales causas**: Imprudencia del conductor (3597 casos), otras causas (599) y causas no determinadas (540)
+- *Nota*: La alta frecuencia de la categoría "otras causas" sugiere la necesidad de ampliar la clasificación causal existente
+
+### Consecuencias y Severidad
+
+- Fallecidos: 94.58% de los siniestros no registran víctimas mortales
+- Lesiones graves: Ausentes en 89.69% de los casos
+- Lesiones menos graves: No ocurren en 94.16% de los accidentes
+- Lesiones leves: No se presentan en 63.10% de los incidentes
+
+### Optimizaciones Realizadas
+
+- **Unificación temporal**: Fusión de las columnas "Fecha" y "Hora" en un único campo datetime
+- **Normalización de datos**: Conversión de 8 variables de texto a tipo factor para mejorar el procesamiento estadístico:
+  - "Región"
+  -"Comuna"
+  - "Tipo Accidente"
+  - "Tipo (CONASET)"
+  - "Zona"
+  - "Ubicación Relativa"
+  - "Causa (CONASET)"
+  - "Causa Accidente"
 
 ## GH026929.xlsx
 
@@ -92,14 +129,66 @@ gh026929$`GPS (Long.) [deg]` <- gh026929$`GPS (Long.) [deg]` %>% reduce.coords()
 gh026929 %>% summary()
 ```
 
-- Se unieron "date" y "hora" en una misma columna
-- "GPS (Lat.) [deg]" y "GPS (Long.) [deg]" no tenían el punto decimal, por lo que, debido al contexto de que los datos son de Chile, se tomó como parte entera los primeros 2 dígitos mediante la siguiente función:
+### Resumen Ejecutivo
+
+El dataset contiene 1726 registros de telemetría GPS capturados durante un período específico de operación vehicular.
+
+### Características Temporales
+
+- **Período de registro**: 29 de agosto de 2024, entre las 01:32 y 01:34 horas
+- **Duración total**: Aproximadamente 2 minutos de monitoreo continuo
+
+### Parámetros de Velocidad
+
+- **Velocidad 3D**: Rango de 0.01 a 19.06 m/s (0.036 a 68.62 km/h)
+- **Velocidad promedio**: 9.1 m/s (32.76 km/h)
+- **Velocidad mediana**: 9.81 m/s (35.32 km/h), indicando una distribución sesgada hacia velocidades moderadas-altas
+
+### Calidad de Señal GPS
+
+- **Valor fix**: Constante en 3 para todos los registros, sugiriendo un posicionamiento 3D consistente
+- **Precisión**: Oscila entre 121 y 158 unidades (media: 125.9, mediana: 125)
+
+### Aspectos Requieren Clarificación
+
+**Variables por Definir**
+
+- `cts`: Propósito y unidades no especificadas
+- `fix`: Escala de calidad de posicionamiento GPS no documentada
+- **Unidades de precisión**: Métrica de exactitud no especificada
+- **Rango de alturas**: Valores de altitud GPS no reportados en el resumen
+
+**Problemas de Formato Identificados**
+
+- Coordenadas GPS (`Lat.` y `Long.`) sin formato decimal apropiado
+- Velocidad 2D con inconsistencias en la ubicación del punto decimal
+- Múltiples campos numéricos presentados sin separador decimal
+
+## Procesamiento de Datos Realizado
+
+**Normalización Temporal**
+
+- Fusión de columnas `date` y `hora` en un campo datetime unificado
+
+**Corrección de Coordenadas Geográficas**
+
+Función aplicada:
 
 $$\text{reduce.coords}(n)\equiv n\times10^{1-\lfloor\log_{10}|n|\rfloor}$$
 
-- Algunas celdas de "GPS (2D speed) [m/s]" no tenían el punto decimal, por lo que se buscó que tuvieran el mismo orden de magnitud que "GPS (3D speed) [m/s]" mediante la siguiente función:
+*Objetivo*: Ajuste de coordenadas chilenas mediante reposicionamiento del punto decimal basado en el orden de magnitud
+
+**Normalización de Velocidad 2D**
+
+Función aplicada:
 
 $$\text{reduce.2d.speed}(n,m)\equiv n\times10^{\lfloor\log_{10}m+1\rfloor-\lfloor\log_{10}n+1\rfloor}$$
+
+*Objetivo*: Alineación de órdenes de magnitud entre velocidades 2D y 3D mediante escalado decimal dinámico
+
+### Observaciones Técnicas
+
+Los ajustes aplicados sugieren que el sistema de captura original podría presentar inconsistencias en el formato de salida numérico, requiriendo post-procesamiento para una interpretación correcta de las mediciones GPS.
 
 ## Data accidentes de carabineros.xlsx
 
@@ -122,6 +211,10 @@ police.accidents$KM[!(police.accidents$KM %>% is.na())] <- police.accidents$KM[!
 police.accidents$PARTE <- police.accidents$PARTE %>% as.numeric()
 police.accidents %>% summary()
 ```
+
+**Resumen**
+
+**Modificaciones**
 
 - Se unieron "FECHA" y "HORA" en una misma columna
 - "ZONA", "COMUNA", "TIPO", "CAUSA" y "SECTOR" pasaron de ser tipo "character" a tipo "factor" para un mejor procesamiento
