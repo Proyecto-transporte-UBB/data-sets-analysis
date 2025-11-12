@@ -26,6 +26,8 @@ library(readr)
 library(lubridate)
 library(ggmap)
 library(viridis)
+library(maps)
+library(tidyverse)
 load(".RData")
 ```
 
@@ -78,6 +80,13 @@ gh026929 <- gh026929 %>% select(-hora)
 reduce.coords <- function(n) {
   n * 10 ^ (1 - (n %>% abs() %>% log10() %>% floor()))
 }
+reduce.2d.speed <- function(n, m) {
+  N <- n * 10 ^ ((m %>% log10() + 1) %>% floor() - (n %>% log10() + 1) %>% floor())
+  N[(N / m) %>% log10() > 0.7] <- N[(N / m) %>% log10() > 0.7] / 10
+  N[(N / m) %>% log10() < -0.7] <- N[(N / m) %>% log10() < -0.7] * 10
+  N
+}
+gh026929$`GPS (2D speed) [m/s]` <- reduce.2d.speed(gh026929$`GPS (2D speed) [m/s]`, gh026929$`GPS (3D speed) [m/s]`)
 gh026929$`GPS (Lat.) [deg]` <- gh026929$`GPS (Lat.) [deg]` %>% reduce.coords()
 gh026929$`GPS (Long.) [deg]` <- gh026929$`GPS (Long.) [deg]` %>% reduce.coords()
 gh026929 %>% summary()
@@ -136,7 +145,7 @@ for(sheet in date.sheets) {
   radio.accidents[[sheet]] <- df
 }
 radio.accidents.df <- radio.accidents %>% bind_rows()
-radio.accidents.df <- radio.accidents.df[!(radio.accidents.df$coord %>% is.na()),]
+radio.accidents.df <- radio.accidents.df[!(radio.accidents.df$coord %>% is.na() | radio.accidents.df$`Reporte completo? (SI/NO)` %>% is.na()),]
 radio.accidents.df$coord[!(radio.accidents.df$lat %>% is.na())] <- radio.accidents.df$lat[!(radio.accidents.df$lat %>% is.na())]
 radio.accidents.df <- radio.accidents.df %>% select(-c(lat, `Tipo de incidente`, `tipo de incidente`, ...7, ...13))
 radio.accidents.df$dir[!(radio.accidents.df$...12 %>% is.na()) & (radio.accidents.df$dir %>% is.na())] <- radio.accidents.df$...12[!(radio.accidents.df$...12 %>% is.na()) & (radio.accidents.df$dir %>% is.na())]
@@ -169,7 +178,7 @@ radio.accidents.df %>% summary()
 - Se creó la columna "fecha" a partir del nombre de la hoja
 - "#ID" se volvió de tipo "numeric"
 - Se unieron los "data.frame" en uno
-- Se eliminaron las filas en las que "coord" es nulo
+- Se eliminaron las filas en las que "coord" o "Reporte completo? (SI/NO)" es nulo
 - Se eliminaron "Tipo de incidente", "tipo de incidente", "...7", "...13" debido que todos sus valores son nulos
 - "Reporte completo? (SI/NO)" pasó a tener los siguientes valores:
   - "SI" si originalmente era "is", "si", "SI" o "su"
@@ -376,34 +385,163 @@ waze.data %>% summary()
 
 # Visualizar datos
 
-## Mapas
+```{r visualizeData, echo=FALSE}
+ggplot(interurban.bus.accidents) +
+  geom_bar(aes(x = `Tipo (CONASET)` %>% fct_infreq())) +
+  labs(x = "Tipo (CONASET)")
+```
 
-```{r visualizeData, include=FALSE}
-bbox <- c(
-  min(radio.accidents.df$lng, na.rm = TRUE) - 0.01,
-  min(radio.accidents.df$lat, na.rm = TRUE) - 0.01,
-  max(radio.accidents.df$lng, na.rm = TRUE) + 0.01,
-  max(radio.accidents.df$lat, na.rm = TRUE) + 0.01
-)
-streets <- opq(bbox = bbox) %>%
-  add_osm_feature(key = "highway") %>%
-  osmdata_sf()
-ggplot() +
-  geom_sf(data = streets$osm_lines, color = "gray50", size = 0.3, alpha = 0.7) +
-  stat_density_2d(
-    data = radio.accidents.df,
-    aes(x = lng, y = lat, fill = ..density..),
-    geom = "raster",
-    contour = FALSE,
-    alpha = 0.6
-  ) +
-  scale_fill_viridis_c(name = "Densidad") +
-  labs(
-    title = "Mapa de calor de densidad: Incidentes de tráfico de radio",
-    x = "Longitud",
-    y = "Latitud"
-  ) +
-  theme_minimal() +
-  coord_sf()
+
+```{r visualizeData, echo=FALSE}
+ggplot(interurban.bus.accidents) +
+  geom_bar(aes(fill = `Tipo (CONASET)` %>% fct_infreq() %>% fct_rev(), y = `Tipo Accidente` %>% fct_infreq() %>% fct_rev())) +
+  labs(fill = "Tipo (CONASET)", y = "Tipo Accidente")
+```
+
+
+```{r visualizeData, echo=FALSE}
+ggplot(interurban.bus.accidents) +
+  geom_bar(aes(y = `Causa (CONASET)` %>% fct_infreq() %>% fct_rev())) +
+  labs(y = "Causa (CONASET)")
+```
+
+
+```{r visualizeData, echo=FALSE}
+ggplot(interurban.bus.accidents) +
+  geom_bar(aes(y = Región %>% fct_infreq() %>% fct_rev())) +
+  labs(y = "Región")
+```
+
+
+```{r visualizeData, echo=FALSE}
+n <- 10
+top <- interurban.bus.accidents %>%
+  count(Comuna) %>%
+  slice_max(n, n = n) %>%
+  pull(Comuna)
+ggplot(interurban.bus.accidents[interurban.bus.accidents$Comuna %in% top,]) +
+  geom_bar(aes(
+    fill = Región,
+    y = Comuna %>%
+      fct_infreq() %>%
+      fct_lump_n(n = n, ties.method = "first") %>%
+      fct_rev())) +
+  labs(y = "Comuna")
+```
+
+
+```{r visualizeData, echo=FALSE}
+ggplot(gh026929) +
+  geom_density(aes(x = `GPS (2D speed) [m/s]`))
+```
+
+
+```{r visualizeData, echo=FALSE}
+ggplot(police.accidents) +
+  geom_bar(aes(y = TIPO %>% fct_infreq() %>% fct_rev(), fill = SECTOR)) +
+  labs(y = "TIPO")
+```
+
+
+```{r visualizeData, echo=FALSE}
+ggplot(police.accidents) +
+  geom_bar(aes(y = ZONA %>% fct_infreq() %>% fct_rev())) +
+  labs(y = "ZONA")
+```
+
+
+```{r visualizeData, echo=FALSE}
+n <- 10
+top <- police.accidents %>%
+  count(COMUNA) %>%
+  slice_max(n, n = n) %>%
+  pull(COMUNA)
+ggplot(police.accidents[police.accidents$COMUNA %in% top,]) +
+  geom_bar(aes(
+    fill = ZONA,
+    y = COMUNA %>%
+      fct_infreq() %>%
+      fct_lump_n(n = n, ties.method = "first") %>%
+      fct_rev())) +
+  labs(y = "COMUNA")
+```
+
+
+```{r visualizeData, echo=FALSE}
+ggplot(police.accidents) +
+  geom_bar(aes(x = FECHA %>% as.Date(), fill = police.accidents$SECTOR)) +
+  labs(x = "FECHA", fill = "SECTOR")
+```
+
+
+```{r visualizeData, echo=FALSE}
+w.days <- c("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")
+ggplot(police.accidents) +
+  geom_bar(aes(x = FECHA %>% weekdays() %>% factor(levels = w.days), fill = police.accidents$SECTOR)) +
+  labs(x = "DÍA", fill = "SECTOR")
+```
+
+
+```{r visualizeData, echo=FALSE}
+ggplot(police.accidents) +
+  geom_bar(aes(x = FECHA %>% hour(), fill = police.accidents$SECTOR)) +
+  labs(x = "HORA", fill = "SECTOR")
+```
+
+
+```{r visualizeData, echo=FALSE}
+ggplot(radio.accidents.df) +
+  geom_bar(aes(x = Hora %>% as.Date(), fill = Hora %>% hour() %>% as.factor())) +
+  labs(x = "Fecha", fill = "Hora")
+```
+
+
+```{r visualizeData, echo=FALSE}
+radio.accidents.df$Hora %>% floor_date(., "week") %>% unique()
+ggplot(radio.accidents.df) +
+  geom_bar(aes(x = Hora %>% weekdays() %>% factor(levels = w.days), fill = (Hora %>% floor_date(., "week") + 24 * 3600) %>% as.factor())) +
+  labs(x = "Día", fill = "Semana")
+```
+
+
+```{r visualizeData, echo=FALSE}
+ggplot(radio.accidents.df) +
+  geom_bar(aes(x = Hora %>% hour(), fill = Hora %>% weekdays() %>% factor(levels = w.days))) +
+  labs(x = "Hora", fill = "Día")
+```
+
+Hubo una gran cantidad de incidentes el día viernes 1ro de agosto a las 21 horas
+
+
+```{r visualizeData, echo=FALSE}
+peak.radio <- radio.accidents.df[radio.accidents.df$Hora >= "2025-08-08 20:00" & radio.accidents.df$Hora <= "2025-08-08 22:00",]
+peak.radio
+```
+
+
+```{r visualizeData, echo=FALSE}
+world.map <- map_data("world")
+min.pos <- c(lat = peak.radio$lat %>% min(), lng = peak.radio$lng %>% min())
+max.pos <- c(lat = peak.radio$lat %>% max(), lng = peak.radio$lng %>% max())
+region.map <- world.map[world.map$region == "Chile",]
+groups <- region.map[region.map$lat >= min.pos["lat"] & region.map$lat <= max.pos["lat"] & 
+         region.map$long >= min.pos["lng"] & region.map$long <= max.pos["lng"],] %>% 
+  pull(group) %>% unique()
+region.map <- region.map[region.map$group %in% groups,]
+ggplot(peak.radio) +
+  region.map
+  geom_point(aes(x = lng, y = lat))
+```
+
+
+```{r visualizeData, echo=FALSE}
+
+```
+
+
+```{r visualizeData, echo=FALSE}
+ggplot(waze.data[!(waze.data$Cause %>% is.na()),]) +
+  geom_bar(aes(x = Cause)) +
+  labs(title = "Causas de las alertas de Waze")
 ```
 
