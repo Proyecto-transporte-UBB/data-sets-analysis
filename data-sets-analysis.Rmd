@@ -93,9 +93,13 @@ gh026929 %>% summary()
 ```
 
 - Se unieron "date" y "hora" en una misma columna
-- "GPS (Lat.) [deg]" y "GPS (Long.) [deg]" no tenían el punto decimal, por lo que, debido al contexto de que los datos son de Chile, se tomó como parte entera los primeros 2 dígitos mediante la siguiente fórmula:
+- "GPS (Lat.) [deg]" y "GPS (Long.) [deg]" no tenían el punto decimal, por lo que, debido al contexto de que los datos son de Chile, se tomó como parte entera los primeros 2 dígitos mediante la siguiente función:
 
 $$\text{reduce.coords}(n)\equiv n\times10^{1-\lfloor\log_{10}|n|\rfloor}$$
+
+- Algunas celdas de "GPS (2D speed) [m/s]" no tenían el punto decimal, por lo que se buscó que tuvieran el mismo orden de magnitud que "GPS (3D speed) [m/s]" mediante la siguiente función:
+
+$$\text{reduce.2d.speed}(n,m)\equiv n\times10^{\lfloor\log_{10}m+1\rfloor-\lfloor\log_{10}n+1\rfloor}$$
 
 ## Data accidentes de carabineros.xlsx
 
@@ -209,7 +213,6 @@ directions <- file.path %>% excel_sheets()
 chiguayante.speed <- list()
 for(sheet in directions) {
   df <- file.path %>% read_excel(sheet = sheet)
-  ## ¿De qué fecha es?
   df$dirección <- sheet
   df$`Lugar (dirección)` <- df$`Lugar (dirección)`[!(df$`Lugar (dirección)` %>% is.na())] %>% paste(collapse = ", ")
   chiguayante.speed[[sheet]] <- df
@@ -218,6 +221,20 @@ chiguayante.speed.df <- chiguayante.speed %>% bind_rows()
 chiguayante.speed.df <- chiguayante.speed.df %>% select(-c(...5, ...6, ...7, ...8, ...9, ...10, ...11, ...12, ...13))
 chiguayante.speed.df <- chiguayante.speed.df[!(chiguayante.speed.df$`Velocidad [km/hr]` %>% is.na()),]
 chiguayante.speed.df <- chiguayante.speed.df %>% fill(Hora, .direction = "down")
+chiguayante.speed.df$Hora <- chiguayante.speed.df$Hora %>% as.POSIXct() %>% format(., "%H:%M:%S") %>% hms()
+chiguayante.speed.df$Comentario[chiguayante.speed.df$Comentario %in% c(
+  "auto, doblo a Lo Plaza",
+  "Auto, doblo a Lo Plaza",
+  "Auto, gira a Lo Plaza"
+)] <- "Auto, dobló a Lo Plaza"
+chiguayante.speed.df$Comentario[chiguayante.speed.df$Comentario %in% c(
+  "camion",
+  "Camion"
+)] <- "Camión"
+chiguayante.speed.df$Comentario[chiguayante.speed.df$Comentario %in% c(
+  "micro",
+  "Micro"
+)] <- "Micro"
 chiguayante.speed.df$Comentario <- chiguayante.speed.df$Comentario %>% as.factor()
 chiguayante.speed.df$dirección <- chiguayante.speed.df$dirección %>% as.factor()
 chiguayante.speed.df$`Lugar (dirección)` <- chiguayante.speed.df$`Lugar (dirección)` %>% as.factor()
@@ -231,6 +248,11 @@ chiguayante.speed.df %>% summary()
 - Se eliminaron las columnas "...5", "...6", "...7", "...8", "...9", "...10", "...11", "...12" y "...13"
 - Se eliminaron las filas en las que "Velocidad [km/hr]" es nulo
 - Las filas donde "Hora" es nulo se rellenaron con el valor de la fila anterior
+- "Comentario" pasó a tener los siguientes valores:
+  - "Auto, dobló a Lo Plaza" si originalmente era "auto, doblo a Lo Plaza", "Auto, doblo a Lo Plaza" o "Auto, gira a Lo Plaza"
+  - "Camión" si originalmente era "camion" o "Camion"
+  - "Micro" si originalmente era "micro" o "Micro"
+  - Queda igual en cualquier otro caso
 - "Comentario", "dirección" y "Lugar (dirección)" pasaron de ser tipo "character" a tipo "factor" para un mejor procesamiento
 
 ## Med velo LA VEGA.xlsx
@@ -244,7 +266,6 @@ vega.speed <- list()
 for(sheet in directions) {
   df <- file.path %>% read.xlsx(sheet = sheet, colNames = T, fillMergedCells = TRUE, detectDates = T, skipEmptyCols = F, skipEmptyRows = F)
   df <- df[, 2:5]
-  ## ¿De qué fecha es?
   df$Hora[!(df$Hora %>% is.na()) & df$Hora %>% as.numeric() > 1 & !((!(df$Hora %>% is.na()) & df$Hora %>% as.numeric() > 1) %>% is.na())] <- df$Hora[!(df$Hora %>% is.na()) & df$Hora %>% as.numeric() > 1 & !((!(df$Hora %>% is.na()) & df$Hora %>% as.numeric() > 1) %>% is.na())] %>% as.numeric() %>% round(digits = 2) %>% as.character() %>% gsub("\\.", ":", .)
   df$Hora <- df$Hora %>% as.numeric() %>% as.POSIXct(format = "%H:%M")
   df$dirección <- sheet
@@ -254,6 +275,32 @@ for(sheet in directions) {
 vega.speed.df <- vega.speed %>% bind_rows()
 vega.speed.df <- vega.speed.df[!(vega.speed.df$`Velocidad.[km/hr]` %>% is.na()),]
 vega.speed.df <- vega.speed.df %>% fill(Hora, .direction = "down")
+vega.speed.df$Hora <- vega.speed.df$Hora %>% as.POSIXct() %>% format(., "%H:%M:%S") %>% hms()
+vega.speed.df$Comentario %>% as.factor() %>% summary()
+vega.speed.df$Comentario[vega.speed.df$Comentario %in% c(
+  "cola por funeral",
+  "forman cola"
+)] <- "Forman cola"
+vega.speed.df$Comentario[vega.speed.df$Comentario %in% c(
+  "llega a cola",
+  "llegan a cola",
+  "llegan a cola, aprox 4 vehiculos",
+  "llegan a cola formada antes de medir"
+)] <- "Llega a cola"
+vega.speed.df$Comentario[vega.speed.df$Comentario %in% c(
+  "llegan juntos",
+  "llegan juntos ",
+  "llegan juntos, cola aprox 8 a 10 autos",
+  "llegan juntos, generan cola"
+)] <- "Llegan juntos"
+vega.speed.df$Comentario[vega.speed.df$Comentario %in% c(
+  "micro",
+  "Micro"
+)] <- "Micro"
+vega.speed.df$Comentario[vega.speed.df$Comentario %in% c(
+  "moto",
+  "Moto"
+)] <- "Moto"
 vega.speed.df$Comentario <- vega.speed.df$Comentario %>% as.factor()
 vega.speed.df$`Lugar.(dirección)` <- vega.speed.df$`Lugar.(dirección)` %>% as.factor()
 vega.speed.df$dirección <- vega.speed.df$dirección %>% as.factor()
@@ -401,14 +448,14 @@ ggplot(interurban.bus.accidents) +
 
 ```{r visualizeData, echo=FALSE}
 ggplot(interurban.bus.accidents) +
-  geom_bar(aes(y = `Causa (CONASET)` %>% fct_infreq() %>% fct_rev())) +
+  geom_bar(aes(y = `Causa (CONASET)` %>% fct_infreq() %>% fct_rev(), fill = `Tipo (CONASET)`)) +
   labs(y = "Causa (CONASET)")
 ```
 
 
 ```{r visualizeData, echo=FALSE}
 ggplot(interurban.bus.accidents) +
-  geom_bar(aes(y = Región %>% fct_infreq() %>% fct_rev())) +
+  geom_bar(aes(y = Región %>% fct_infreq() %>% fct_rev(), fill = `Tipo (CONASET)`)) +
   labs(y = "Región")
 ```
 
@@ -445,7 +492,7 @@ ggplot(police.accidents) +
 
 ```{r visualizeData, echo=FALSE}
 ggplot(police.accidents) +
-  geom_bar(aes(y = ZONA %>% fct_infreq() %>% fct_rev())) +
+  geom_bar(aes(y = ZONA %>% fct_infreq() %>% fct_rev(), fill = SECTOR)) +
   labs(y = "ZONA")
 ```
 
@@ -515,7 +562,8 @@ Hubo una gran cantidad de incidentes el día viernes 1ro de agosto a las 21 hora
 
 ```{r visualizeData, echo=FALSE}
 peak.radio <- radio.accidents.df[radio.accidents.df$Hora >= "2025-08-08 20:00" & radio.accidents.df$Hora <= "2025-08-08 22:00",]
-peak.radio
+ggplot(peak.radio[!(peak.radio$dir %>% is.na()),]) +
+  geom_bar(aes(x = dir))
 ```
 
 
@@ -535,7 +583,18 @@ ggplot(peak.radio) +
 
 
 ```{r visualizeData, echo=FALSE}
-
+chiguayante.speed.df$Vehículo <- ifelse(
+  chiguayante.speed.df$Comentario %in% c(
+    "Auto, dobló a Lo Plaza",
+    "Auto, iba a doblar a Lo Plaza",
+    "auto, se percibe cola",
+    NA
+  ),
+  "Auto",
+  chiguayante.speed.df$Comentario %>% as.character()
+) %>% as.factor()
+ggplot(chiguayante.speed.df) +
+  geom_density(aes(x = `Velocidad [km/hr]`, colour = Vehículo))
 ```
 
 
