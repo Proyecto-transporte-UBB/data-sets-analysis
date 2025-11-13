@@ -930,6 +930,96 @@ biobio.inventary$REGIÓN <- biobio.inventary$REGIÓN %>% as.factor()
 biobio.inventary %>% summary()
 ```
 
+El inventario documenta 71 ubicaciones de cámaras de vigilancia y sus respectivos sistemas de codificación de video desplegados en la Región del Biobío, representando la infraestructura de monitoreo vial regional.
+
+### Distribución Geográfica
+
+- **Comunas con mayor cobertura**:
+  - **Concepción**: 31 cámaras
+  - **San Pedro de la Paz**: 16 cámaras
+  - **Los Ángeles**: 10 cámaras
+- **Cobertura regional**: Múltiples comunas del Biobío con sistemas CCTV
+
+### Estado Operacional del Sistema
+
+- **Cámaras online**: 32 unidades
+- **Cámaras offline**: 39 unidades
+- **Disponibilidad general**: Sistema operando con 45% de disponibilidad inmediata
+
+### Características Técnicas de la Infraestructura
+
+**Conectividad y Proveedores**
+
+- **Tipo de enlace**: 100% digital (71/71 cámaras)
+- **Proveedor de servicios**: Exclusivamente "Red Comunicaciones Propia" (71/71)
+
+**Especificaciones de Cámaras**
+
+_Marcas predominantes_:
+
+- Pelco: 38 cámaras
+- Avigilon: 10 cámaras
+- Axis: 10 cámaras
+
+_Modelos más frecuentes_:
+
+- Pelco Esprit: 27 unidades
+- Avigilon 2.0C-H5A-RGDPTZ-DP36: 10 unidades
+- Axis AXIS Q8685-E: 10 unidades
+
+**Sistema de Codificación de Video**
+
+_Codificadores identificados_:
+
+- Axis AXIS Q7401: 26 unidades
+- Sin especificar: 45 unidades - posiblemente integrados en cámaras o no documentados
+
+### Evolución Temporal del Sistema
+
+- **Rango de integración**: 1 de noviembre de 2003 - 1 de septiembre de 2024
+- **Vida útil del sistema**: Más de 20 años de despliegue progresivo
+- **Actualizaciones recientes**: Integraciones hasta septiembre 2024
+
+### Procesamiento y Normalización de Datos
+
+**Corrección de Estructura de Columnas**:
+
+- **Problema original**: Columnas duplicadas "MARCA", "MODELO" y "NÚMERO DE SERIE" para cámara y codificador
+- **Solución aplicada**:
+  - Diferenciación clara mediante sufijos "DE LA CÁMARA" y "DEL CODIFICADOR DE VIDEO"
+  - Asignación basada en posición original en el dataset (columnas 1-11: cámara, 12-17: codificador)
+
+**Optimización para Análisis**:
+
+- **Normalización categórica**: Conversión de 9 variables clave a tipo factor:
+  - COMUNA
+  - ESTADO
+  - TIPO DE ENLACE
+  - PROVEEDOR
+  - MARCA DE LA CÁMARA
+  - MODELO DE LA CÁMARA
+  - MARCA DEL CODIFICADOR
+  - MODELO DEL CODIFICADOR
+  - REGIÓN
+- **Manejo de valores faltantes**: Identificación explícita de valores "----" como NA
+
+
+
+
+**Resumen**
+
+Se muestran 71 ubicaciones de cámaras y sus respectivos codificadores de video
+
+- Las fechas de integración se distribuyen entre el 1ro de noviembre de 2003 hasta el 1ro de septiembre de 2024
+- Las comunas con más cámaras registradas son Concepción (31), San Pedro de la Paz (16) y Los Ángeles (10)
+- Hay 32 cámaras online y 39 cámaras online
+- Todas las cámaras son de enlace tipo digital y su proveedor es "Red Comunicaciones Propia"
+- Las marcas más comunes de las cámaras son Pelco (38), Avigilon (10) y Axis (10)
+- Los modelos más comunes de las cámaras son Esprit (27), 2.0C-H5A-RGDPTZ-DP36 (10) y AXIS Q8685-E (10)
+- Hay 26 codificadores de video de marca Axis y modelo AXIS Q7401, en los 45 restantes, tanto la marca como el modelo son nulos
+
+**Modificaciones**
+
 - Debido a que las columnas "MARCA", "MODELO" y "NÚMERO DE SERIE" estaban repetidos, se les agregó "DE LA CÁMARA" y "DEL CODIFICADOR DE VIDEO" a cada uno
 - "COMUNA", "ESTADO", "TIPO DE ENLACE", "PROVEEDOR", "MARCA DE LA CÁMARA", "MODELO DE LA CÁMARA", "MARCA DEL CODIFICADOR DE VIDEO", "MODELO DEL CODIFICADOR DE VIDEO" y "REGIÓN" pasaron de ser tipo "character" a tipo "factor" para un mejor procesamiento
 
