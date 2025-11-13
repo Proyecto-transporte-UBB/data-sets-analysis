@@ -1003,26 +1003,6 @@ _Codificadores identificados_:
   - REGIÓN
 - **Manejo de valores faltantes**: Identificación explícita de valores "----" como NA
 
-
-
-
-**Resumen**
-
-Se muestran 71 ubicaciones de cámaras y sus respectivos codificadores de video
-
-- Las fechas de integración se distribuyen entre el 1ro de noviembre de 2003 hasta el 1ro de septiembre de 2024
-- Las comunas con más cámaras registradas son Concepción (31), San Pedro de la Paz (16) y Los Ángeles (10)
-- Hay 32 cámaras online y 39 cámaras online
-- Todas las cámaras son de enlace tipo digital y su proveedor es "Red Comunicaciones Propia"
-- Las marcas más comunes de las cámaras son Pelco (38), Avigilon (10) y Axis (10)
-- Los modelos más comunes de las cámaras son Esprit (27), 2.0C-H5A-RGDPTZ-DP36 (10) y AXIS Q8685-E (10)
-- Hay 26 codificadores de video de marca Axis y modelo AXIS Q7401, en los 45 restantes, tanto la marca como el modelo son nulos
-
-**Modificaciones**
-
-- Debido a que las columnas "MARCA", "MODELO" y "NÚMERO DE SERIE" estaban repetidos, se les agregó "DE LA CÁMARA" y "DEL CODIFICADOR DE VIDEO" a cada uno
-- "COMUNA", "ESTADO", "TIPO DE ENLACE", "PROVEEDOR", "MARCA DE LA CÁMARA", "MODELO DE LA CÁMARA", "MARCA DEL CODIFICADOR DE VIDEO", "MODELO DEL CODIFICADOR DE VIDEO" y "REGIÓN" pasaron de ser tipo "character" a tipo "factor" para un mejor procesamiento
-
 ## Alertas de Tráfico.csv
 
 ```{r getData7, include=FALSE}
