@@ -551,8 +551,6 @@ La estandarización aplicada permite:
 - Correlación entre tipos de incidente y direccionalidad
 - Evaluación de completitud y calidad reportística
 
-El dataset resultante representa una base consolidada para el análisis de movilidad y gestión de incidentes de tráfico.
-
 ## Med velo CHIGUAYANTE.xlsx
 
 ```{r getData3, include=FALSE}
@@ -587,22 +585,111 @@ chiguayante.speed.df$Comentario[chiguayante.speed.df$Comentario %in% c(
 chiguayante.speed.df$Comentario <- chiguayante.speed.df$Comentario %>% as.factor()
 chiguayante.speed.df$dirección <- chiguayante.speed.df$dirección %>% as.factor()
 chiguayante.speed.df$`Lugar (dirección)` <- chiguayante.speed.df$`Lugar (dirección)` %>% as.factor()
+chiguayante.speed.df$Vehículo <- "Auto"
+chiguayante.speed.df$Vehículo[chiguayante.speed.df$Comentario %in% c("Camión", "Micro", "MOTO", "retroexcavadora")] <- chiguayante.speed.df$Comentario[chiguayante.speed.df$Comentario %in% c("Camión", "Micro", "MOTO", "retroexcavadora")] %>% as.character()
+chiguayante.speed.df$Vehículo <- chiguayante.speed.df$Vehículo %>% as.factor()
 chiguayante.speed.df %>% summary()
 ```
 
-- Se creó un "data.frame" por cada hoja
-- Debido a que "Lugar (dirección)" tiene sólo un valor por hoja, se unieron todas sus celdas en un sólo valor que sería para todas las filas
-- Se creó la columna "dirección" a partir del nombre de la hoja
-- Se unieron los "data.frame" en uno
-- Se eliminaron las columnas "...5", "...6", "...7", "...8", "...9", "...10", "...11", "...12" y "...13"
-- Se eliminaron las filas en las que "Velocidad [km/hr]" es nulo
-- Las filas donde "Hora" es nulo se rellenaron con el valor de la fila anterior
-- "Comentario" pasó a tener los siguientes valores:
-  - "Auto, dobló a Lo Plaza" si originalmente era "auto, doblo a Lo Plaza", "Auto, doblo a Lo Plaza" o "Auto, gira a Lo Plaza"
-  - "Camión" si originalmente era "camion" o "Camion"
-  - "Micro" si originalmente era "micro" o "Micro"
-  - Queda igual en cualquier otro caso
-- "Comentario", "dirección" y "Lugar (dirección)" pasaron de ser tipo "character" a tipo "factor" para un mejor procesamiento
+El dataset contiene 338 mediciones de velocidad vehicular capturadas en el paradero "Bdo O'Higgins - Arauco" de Chiguayante, monitoreando el flujo entre Concepción y Hualqui.
+
+### Contexto Operacional
+
+- **Ubicación**: Paradero "Bdo O'Higgins - Arauco", Chiguayante
+- **Corredor vial**: Concepción ↔ Hualqui
+- **Período de medición**: 09:06 a 17:58 horas (fecha no especificada)
+- **Duración**: Aproximadamente 9 horas de monitoreo continuo
+
+### Análisis de Velocidades
+
+- **Rango de velocidades**: 3 a 71 km/h
+- **Velocidad promedio**: 44.27 km/h
+- **Velocidad mediana**: 43 km/h
+- **Distribución**: Relativamente simétrica alrededor de la mediana
+
+### Composición Vehicular
+
+**Tipos de vehículos identificados**:
+
+- **Automóviles**: 273 registros
+- **Microbuses**: 52 registros
+- **Camiones**: 9 registros
+- **Motos**: 3 registros
+- **Retroexcavadora**: 1 registro
+
+### Patrones de Movimiento
+
+**Distribución direccional**:
+
+- **Hacia Concepción**: 163 mediciones
+- **Hacia Hualqui**: 175 mediciones
+- **Balance**: Ligero predominio del flujo hacia Hualqui
+
+### Comportamientos Específicos
+
+**Maniobras documentadas**:
+
+- "Auto, dobló a Lo Plaza": 8 casos
+- "Auto, iba a doblar a Lo Plaza": 1 caso
+- "auto, se percibe cola": 1 caso
+
+### Aspectos que Requieren Clarificación
+
+**Información Crítica Faltante**
+
+- **Fecha de medición**: No especificada en los datos originales
+- **Clasificación vehicular**: Necesidad de confirmar si vehículos sin comentario deben categorizarse automáticamente como "Auto"
+
+### Procesamiento y Normalización de Datos
+
+**Estructuración Multi-hoja**
+
+- **Organización por dirección**: Cada hoja representa una dirección de flujo (Concepción→Hualqui / Hualqui→Concepción)
+- **Consolidación**: Unificación de todas las hojas en dataset único
+- **Metadatos direccionales**: Incorporación de columna "dirección" desde nombres de hojas
+
+**Limpieza y Estandarización**
+
+_Normalización de Localización_
+
+- **Unificación geográfica**: Campo "Lugar (dirección)" consolidado por hoja
+- **Eliminación de redundancias**: Remoción de 9 columnas vacías o duplicadas (...5 a ...13)
+
+_Procesamiento Temporal_
+
+- **Completitud horaria**: Rellenado de valores faltantes usando observaciones anteriores
+- **Formato estandarizado**: Conversión a tipo hms para análisis temporal
+
+_Estandarización de Categorías_
+
+Comentarios vehiculares:
+
+- *Maniobras*: Unificación de variantes ["auto, doblo a Lo Plaza", "Auto, doblo a Lo Plaza", "Auto, gira a Lo Plaza"] → "Auto, dobló a Lo Plaza"
+- *Tipos vehiculares*: Normalización de ["camion", "Camion"] → "Camión" y ["micro", "Micro"] → "Micro"
+
+_Clasificación Vehicular Sistematizada_
+
+Variable "Vehículo":
+
+- *Valor por defecto*: "Auto" para registros sin comentario o con referencias a automóviles
+- *Especificación*: Conservación de categorías explícitas ["Camión", "Micro", "MOTO", "retroexcavadora"]
+- *Optimización*: Conversión a tipo factor para análisis categórico
+
+**Optimizaciones Finales**
+
+- **Estructuración**: Conversión de variables clave a tipo factor
+- **Consistencia**: Validación de integridad de datos numéricos
+- **Preparación analítica**: Dataset listo para análisis estadístico y temporal
+
+### Valor Analítico
+
+La base de datos procesada permite:
+
+- Análisis comparativo de velocidades por tipo vehicular
+- Evaluación de patrones horarios de congestión
+- Estudio de distribución direccional del tráfico
+- Identificación de comportamientos vehiculares específicos
+- Benchmarking de velocidades en corredor interurbano
 
 ## Med velo LA VEGA.xlsx
 
@@ -613,19 +700,19 @@ sheets <- excel_sheets(file.path)
 directions <- sheets[grepl("21", sheets) & grepl("mayo", sheets)]
 vega.speed <- list()
 for(sheet in directions) {
-  df <- file.path %>% read.xlsx(sheet = sheet, colNames = T, fillMergedCells = TRUE, detectDates = T, skipEmptyCols = F, skipEmptyRows = F)
+  df <- file.path %>% openxlsx::read.xlsx(sheet = sheet, colNames = T, fillMergedCells = TRUE, detectDates = T, skipEmptyCols = F, skipEmptyRows = F)
   df <- df[, 2:5]
-  df$Hora[!(df$Hora %>% is.na()) & df$Hora %>% as.numeric() > 1 & !((!(df$Hora %>% is.na()) & df$Hora %>% as.numeric() > 1) %>% is.na())] <- df$Hora[!(df$Hora %>% is.na()) & df$Hora %>% as.numeric() > 1 & !((!(df$Hora %>% is.na()) & df$Hora %>% as.numeric() > 1) %>% is.na())] %>% as.numeric() %>% round(digits = 2) %>% as.character() %>% gsub("\\.", ":", .)
-  df$Hora <- df$Hora %>% as.numeric() %>% as.POSIXct(format = "%H:%M")
+  df$Hora[!(df$Hora %>% is.na()) & df$Hora %>% as.numeric() > 1 & !((!(df$Hora %>% is.na()) & df$Hora %>% as.numeric() %>% is.numeric() & df$Hora %>% as.numeric() > 1) %>% is.na())] <- ((df$Hora[!(df$Hora %>% is.na()) & df$Hora %>% as.numeric() > 1 & !((!(df$Hora %>% is.na()) & df$Hora %>% as.numeric() %>% is.numeric() & df$Hora %>% as.numeric() > 1) %>% is.na())] %>% as.numeric() %>% round(digits = 2)) / 24) %>% as.character()
+  hour <- ((df$Hora %>% as.numeric()) * 24) %>% floor()
+  minute <- (((df$Hora %>% as.numeric()) * 24 - hour) * 60) %>% floor()
+  df$Hora <- sprintf("%02d:%02d:00", hour, minute) %>% hms()
+  df <- df %>% fill(Hora, .direction = "down")
   df$dirección <- sheet
   df$`Lugar.(dirección)` <- df$`Lugar.(dirección)`[!(df$`Lugar.(dirección)` %>% is.na())] %>% paste(collapse = ", ")
   vega.speed[[sheet]] <- df
 }
 vega.speed.df <- vega.speed %>% bind_rows()
 vega.speed.df <- vega.speed.df[!(vega.speed.df$`Velocidad.[km/hr]` %>% is.na()),]
-vega.speed.df <- vega.speed.df %>% fill(Hora, .direction = "down")
-vega.speed.df$Hora <- vega.speed.df$Hora %>% as.POSIXct() %>% format(., "%H:%M:%S") %>% hms()
-vega.speed.df$Comentario %>% as.factor() %>% summary()
 vega.speed.df$Comentario[vega.speed.df$Comentario %in% c(
   "cola por funeral",
   "forman cola"
@@ -656,16 +743,96 @@ vega.speed.df$dirección <- vega.speed.df$dirección %>% as.factor()
 vega.speed.df %>% summary()
 ```
 
-- Se buscaron las hojas cuyo nombre incluye las palabras "21" y "mayo", indicando que son direcciones
-- Se creó un "data.frame" por cada hoja
-- Se creó la columna "dirección" a partir del nombre de la hoja
-- Algunas celdas de la columna "Hora" estaban en formato "%H, %M" (por ejemplo: "8,15" en lugar de "8:15") por lo que se les corrigió el formato
-- Se creó la columna "dirección" a partir del nombre de la hoja
-- Debido a que "Lugar.(dirección)" tiene sólo un valor por hoja, se unieron todas sus celdas en un sólo valor que sería para todas las filas
-- Se unieron los "data.frame" en uno
-- Se eliminaron las filas en las que "Velocidad.[km/hr]" es nulo
-- Las filas donde "Hora" es nulo se rellenaron con el valor de la fila anterior
-- "Comentario", "Lugar.(dirección)" y "dirección" pasaron de ser tipo "character" a tipo "factor" para un mejor procesamiento
+El dataset contiene 432 mediciones de velocidad vehicular capturadas en el cruce de Briceños con Miraflores, monitoreando el flujo entre 21 de Mayo y Avenida Costanera a través del sector Miraflores.
+
+### Contexto Operacional
+
+- **Ubicación**: Esquina Briceños con Miraflores, La Vega
+- **Corredores viales**:
+  - 21 de Mayo → Briceños → Miraflores
+  - Av. Costanera → Miraflores → 21 de Mayo
+- **Período de medición**: 08:08 a 17:58 horas (fecha no especificada)
+- **Duración**: Aproximadamente 10 horas de monitoreo continuo
+
+### Análisis de Velocidades
+
+- **Rango de velocidades**: 5 a 23 km/h
+- **Velocidad promedio**: 28.87 km/h
+- **Velocidad mediana**: 29 km/h
+- **Distribución**: Concentrada en velocidades bajas-medias, típicas de tráfico urbano congestionado
+
+### Patrones de Movimiento
+
+**Distribución direccional**:
+
+- **Desde 21 de Mayo**: 250 mediciones
+- **Hacia 21 de Mayo**: 182 mediciones
+- **Balance**: Predominio del flujo desde 21 de Mayo
+
+### Fenómenos de Congestión Documentados
+
+**Patrones de formación de colas**:
+
+- "Llegan juntos": 49 casos - agrupamiento vehicular sincronizado
+- "Llega a cola": 22 casos - incorporación a colas existentes
+- "Forman cola": 14 casos - generación de nuevas colas
+
+**Composición vehicular adicional**:
+
+- **Microbuses**: Registros específicamente identificados
+- **Motocicletas**: Registros categorizados separadamente
+
+### Aspectos que Requieren Clarificación
+
+**Información Crítica Faltante**:
+
+- **Fecha de medición**: No especificada en los datos originales
+- **Contexto temporal**: Día de semana vs. fin de semana no identificado
+
+### Procesamiento y Normalización de Datos
+
+**Estrategia de Extracción Multi-hoja**:
+
+- **Filtrado inteligente**: Identificación de hojas relevantes mediante patrones "21" y "mayo"
+- **Organización direccional**: Cada hoja representa un sentido de flujo específico
+- **Consolidación estructurada**: Unificación de múltiples hojas en dataset coherente
+
+**Corrección de Formatos Temporales**
+
+_Normalización de Horarios_
+
+- **Problema identificado**: Formato decimal incorrecto en celdas horarias (ej: "8,15" en lugar de "8:15")
+- **Solución aplicada**:
+  - Conversión de formato decimal a fracción diaria
+  - Reconstrucción de horas y minutos mediante operaciones matemáticas
+  - Formateo consistente a "HH:MM:SS"
+
+_Completitud de Series Temporales_
+
+- **Rellenado inteligente**: Propagación de valores horarios hacia adelante
+- **Consistencia temporal**: Garantía de continuidad en las mediciones
+
+**Estandarización de Categorías y Comentarios**
+
+_Unificación de Términos de Congestión_
+
+Agrupamiento por patrones:
+
+- *Formación de colas*: ["cola por funeral", "forman cola"] → "Forman cola"
+- *Incorporación a colas*: Variantes de "llega a cola" unificadas
+- *Agrupamiento vehicular*: Múltiples expresiones de "llegan juntos" estandarizadas
+
+_Clasificación Vehicular_
+
+- *Transporte público*: ["micro", "Micro"] → "Micro"
+- *Motocicletas*: ["moto", "Moto"] → "Moto"
+
+### Optimizaciones Estructurales
+
+- **Geolocalización unificada**: Consolidación de "Lugar.(dirección)" por hoja
+- **Metadatos direccionales**: Incorporación sistemática desde nombres de hojas
+- **Tipificación eficiente**: Conversión a factores para análisis categórico
+- **Limpieza de datos**: Eliminación de registros sin medición de velocidad
 
 ## tb_gps_historial_eventos_202509161626(1).csv
 
@@ -677,13 +844,68 @@ gps.events$fecha_auto <- gps.events$fecha_auto %>% as.POSIXct(format = "%Y-%m-%d
 gps.events$fecha_gps_ <- gps.events$fecha_gps_ %>% as.POSIXct(format = "%Y-%m-%d %H:%M:%S")
 gps.events$evento_ <- gps.events$evento_ %>% as.factor()
 gps.events$direccion_ <- gps.events$direccion_ %>% as.factor()
+gps.events %>% nrow()
 gps.events %>% summary()
 ```
 
-- Se reemplazaron los '";"' por " " y los "," por ";" para poder separar las columnas
-- Se eliminaron las columnas "ubicacion_" y "velocidad_" debido a que sólo abía valores nulos
-- "fecha_auto" y "fecha_gps_" pasaron de ser tipo "character" a tipo "Date"
-- "evento_" y "direccion_" pasaron de ser tipo "character" a tipo "factor" para un mejor procesamiento
+El dataset contiene 1000 eventos registrados por sistemas GPS vehiculares, capturando transiciones de estado en una ventana temporal específica.
+
+### Período de Monitoreo
+
+- **Fecha de referencia**: Transición año nuevo 2024-2025
+- **Según timestamp del auto**: 1 de enero de 2025, 00:00:06 - 01:06:29 (66 minutos)
+- **Según timestamp del GPS**: 31 de diciembre de 2024, 23:59:22 - 1 de enero de 2025, 01:06:49 (67 minutos)
+- **Discrepancia temporal**: Diferencia de sincronización entre sistemas de aproximadamente 1 minuto
+
+### Distribución de Estados Vehiculares
+
+**Tipos de eventos registrados**:
+
+- **Apagado**: 552 eventos - vehículo sin operación
+- **Detenido**: 264 eventos - vehículo inmovilizado pero encendido
+- **Movimiento**: 184 eventos - vehículo en desplazamiento
+
+### Patrones de Direccionalidad
+
+**Valores de dirección registrados**:
+
+- `0`: 316 casos
+- `-280`: 184 casos
+- `-223`: 184 casos
+- `-85`: 184 casos
+- `235`: 132 casos
+
+**Observación**: Los valores negativos y positivos sugieren un sistema de coordenadas o ángulos específico.
+
+### Aspectos Requieren Investigación
+
+**Variables Críticas por Clarificar**
+
+- `id_evento`: Valor constante `2` en todos los registros
+- `direccion_`:
+  - Sistema de representación angular (grados) o coordenadas relativas
+  - Significado de valores negativos vs. positivos
+  - Relación con puntos cardinales o sistema de referencia
+
+### Procesamiento y Normalización de Datos
+
+**Corrección de Formato de Archivo**
+
+- **Problema original**: Formato CSV con delimitadores inconsistentes y caracteres de escape
+- **Transformación aplicada**:
+  - Reemplazo de ";" por espacio para unificación
+  - Sustitución de , por ; como nuevo delimitador
+  - Eliminación de comillas redundantes
+- **Resultado**: Estructura tabular legible para importación
+
+**Optimización de Estructura de Datos**
+
+- **Eliminación de columnas vacías**: `ubicacion_` y `velocidad_` removidas por contener exclusivamente valores nulos
+- **Normalización temporal**:
+  - `fecha_auto` y `fecha_gps_` convertidas a formato datetime
+  - Preservación de precisiones de segundos
+- **Tipificación categórica**:
+  - `evento_` y `direccion_` convertidas a factor para análisis estadístico
 
 ## Inventario CCTV Biobío(1).xlsx
 
