@@ -30,7 +30,7 @@ library(maps)
 library(tidyverse)
 library(tidyxl)
 library(purrr)
-load(".RData")
+load("~/GitHub/data-sets-analysis/.RData")
 ```
 
 # Extraer datos
@@ -450,7 +450,6 @@ radio.accidents.df <- radio.accidents.df[!(radio.accidents.df$lat %>% is.na()),]
 radio.accidents.df$Hora <- paste(radio.accidents.df$fecha, radio.accidents.df$Hora) %>% as.POSIXct(format = "%Y-%m-%d %H:%M")
 radio.accidents.df <- radio.accidents.df %>% select(-fecha)
 radio.accidents.df %>% summary()
-radio.accidents.df$dir %>% summary()
 ```
 El dataset contiene 312 registros de incidentes de tráfico reportados a través de sistemas de radio durante un período de 37 días.
 
