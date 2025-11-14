@@ -602,7 +602,7 @@ El dataset contiene 338 mediciones de velocidad vehicular capturadas en el parad
 ### Contexto Operacional
 
 - **Ubicación**: Paradero "Bdo O'Higgins - Arauco", Chiguayante
-- **Corredor vial**: Concepción ↔ Hualqui
+- **Corredor vial**: Concepción - Hualqui
 - **Período de medición**: 09:06 a 17:58 horas (fecha no especificada)
 - **Duración**: Aproximadamente 9 horas de monitoreo continuo
 
@@ -1036,7 +1036,7 @@ El dataset comprende 281759 alertas de tráfico generadas por usuarios de Waze, 
 
 - **Cobertura temporal**: 23 de junio de 2023 - 15 de mayo de 2024
 - **Duración**: Aproximadamente 11 meses de datos continuos
-- **Registros diarios promedio**: ≈850 alertas por día
+- **Registros diarios promedio**: ~850 alertas por día
 
 ### Contexto Geográfico
 
@@ -1129,7 +1129,7 @@ El dataset contiene 281981 registros de accidentes de tránsito, proporcionando 
 
 - **Cobertura temporal**: 23 de junio de 2023 - 15 de mayo de 2024
 - **Duración**: 327 días de reportes continuos
-- **Densidad de datos**: ≈862 accidentes reportados por día en promedio
+- **Densidad de datos**: ~862 accidentes reportados por día en promedio
 
 ### Contexto Geográfico
 
@@ -1195,7 +1195,7 @@ El dataset contiene 13502 registros de irregularidades de tráfico documentadas 
 
 - **Cobertura temporal**: 23 de junio de 2023 - 15 de mayo de 2024
 - **Duración**: 327 días de monitoreo continuo
-- **Frecuencia promedio**: ≈41 irregularidades reportadas por día
+- **Frecuencia promedio**: ~41 irregularidades reportadas por día
 
 ### Distribución Geográfica
 
