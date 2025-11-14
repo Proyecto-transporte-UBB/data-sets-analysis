@@ -49,3 +49,9 @@ po/*~
 rsconnect/
 
 rosm.cache/
+
+data-sets-analysis_files/
+
+*.log
+
+*.tex
