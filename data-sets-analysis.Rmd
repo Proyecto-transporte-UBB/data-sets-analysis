@@ -6,10 +6,12 @@ output:
   pdf_document:
     toc: true
     toc_depth: 3
+    keep_tex: true
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+library(cowplot)
 library(dplyr)
 library(ggmap)
 library(ggplot2)
@@ -1253,35 +1255,35 @@ El dataset contiene 13502 registros de irregularidades de tráfico documentadas 
 
 # Visualizar datos
 
-```{r interurban.bus.accidents0, echo=FALSE}
+```{r interurban.bus.accidents0, echo=FALSE, warning=FALSE}
 ggplot(interurban.bus.accidents) +
   geom_bar(aes(x = `Tipo (CONASET)` %>% fct_infreq())) +
   labs(x = "Tipo (CONASET)")
 ```
 
 
-```{r interurban.bus.accidents1, echo=FALSE}
+```{r interurban.bus.accidents1, echo=FALSE, warning=FALSE}
 ggplot(interurban.bus.accidents) +
   geom_bar(aes(fill = `Tipo (CONASET)` %>% fct_infreq() %>% fct_rev(), y = `Tipo Accidente` %>% fct_infreq() %>% fct_rev())) +
   labs(fill = "Tipo (CONASET)", y = "Tipo Accidente")
 ```
 
 
-```{r interurban.bus.accidents2, echo=FALSE}
+```{r interurban.bus.accidents2, echo=FALSE, warning=FALSE}
 ggplot(interurban.bus.accidents) +
   geom_bar(aes(y = `Causa (CONASET)` %>% fct_infreq() %>% fct_rev(), fill = `Tipo (CONASET)`)) +
   labs(y = "Causa (CONASET)")
 ```
 
 
-```{r interurban.bus.accidents3, echo=FALSE}
+```{r interurban.bus.accidents3, echo=FALSE, warning=FALSE}
 ggplot(interurban.bus.accidents) +
   geom_bar(aes(y = Región %>% fct_infreq() %>% fct_rev(), fill = `Tipo (CONASET)`)) +
   labs(y = "Región")
 ```
 
 
-```{r interurban.bus.accidents4, echo=FALSE}
+```{r interurban.bus.accidents4, echo=FALSE, warning=FALSE}
 n <- 10
 top <- interurban.bus.accidents %>%
   count(Comuna) %>%
@@ -1298,27 +1300,27 @@ ggplot(interurban.bus.accidents[interurban.bus.accidents$Comuna %in% top,]) +
 ```
 
 
-```{r gh0269290, echo=FALSE}
+```{r gh0269290, echo=FALSE, warning=FALSE}
 ggplot(gh026929) +
   geom_density(aes(x = `GPS (2D speed) [m/s]`))
 ```
 
 
-```{r police.accidents0, echo=FALSE}
+```{r police.accidents0, echo=FALSE, warning=FALSE}
 ggplot(police.accidents) +
   geom_bar(aes(y = TIPO %>% fct_infreq() %>% fct_rev(), fill = SECTOR)) +
   labs(y = "TIPO")
 ```
 
 
-```{r police.accidents1, echo=FALSE}
+```{r police.accidents1, echo=FALSE, warning=FALSE}
 ggplot(police.accidents) +
   geom_bar(aes(y = ZONA %>% fct_infreq() %>% fct_rev(), fill = SECTOR)) +
   labs(y = "ZONA")
 ```
 
 
-```{r police.accidents2, echo=FALSE}
+```{r police.accidents2, echo=FALSE, warning=FALSE}
 n <- 10
 top <- police.accidents %>%
   count(COMUNA) %>%
@@ -1335,14 +1337,14 @@ ggplot(police.accidents[police.accidents$COMUNA %in% top,]) +
 ```
 
 
-```{r police.accidents3, echo=FALSE}
+```{r police.accidents3, echo=FALSE, warning=FALSE}
 ggplot(police.accidents) +
   geom_bar(aes(x = FECHA %>% as.Date(), fill = police.accidents$SECTOR)) +
   labs(x = "FECHA", fill = "SECTOR")
 ```
 
 
-```{r police.accidents4, echo=FALSE}
+```{r police.accidents4, echo=FALSE, warning=FALSE}
 w.days <- c("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")
 ggplot(police.accidents) +
   geom_bar(aes(x = FECHA %>% weekdays() %>% factor(levels = w.days), fill = police.accidents$SECTOR)) +
@@ -1350,29 +1352,28 @@ ggplot(police.accidents) +
 ```
 
 
-```{r police.accidents5, echo=FALSE}
+```{r police.accidents5, echo=FALSE, warning=FALSE}
 ggplot(police.accidents) +
   geom_bar(aes(x = FECHA %>% hour(), fill = police.accidents$SECTOR)) +
   labs(x = "HORA", fill = "SECTOR")
 ```
 
 
-```{r radio.accidents.df0, echo=FALSE}
+```{r radio.accidents.df0, echo=FALSE, warning=FALSE}
 ggplot(radio.accidents.df) +
   geom_bar(aes(x = Hora %>% as.Date(), fill = Hora %>% hour() %>% as.factor())) +
   labs(x = "Fecha", fill = "Hora")
 ```
 
 
-```{r radio.accidents.df1, echo=FALSE}
-radio.accidents.df$Hora %>% floor_date(., "week") %>% unique()
+```{r radio.accidents.df1, echo=FALSE, warning=FALSE}
 ggplot(radio.accidents.df) +
   geom_bar(aes(x = Hora %>% weekdays() %>% factor(levels = w.days), fill = (Hora %>% floor_date(., "week") + 24 * 3600) %>% as.factor())) +
   labs(x = "Día", fill = "Semana")
 ```
 
 
-```{r radio.accidents.df2, echo=FALSE}
+```{r radio.accidents.df2, echo=FALSE, warning=FALSE}
 ggplot(radio.accidents.df) +
   geom_bar(aes(x = Hora %>% hour(), fill = Hora %>% weekdays() %>% factor(levels = w.days))) +
   labs(x = "Hora", fill = "Día")
@@ -1381,14 +1382,14 @@ ggplot(radio.accidents.df) +
 Hubo una gran cantidad de incidentes el día viernes 1ro de agosto a las 21 horas
 
 
-```{r radio.accidents.df3, echo=FALSE}
+```{r radio.accidents.df3, echo=FALSE, warning=FALSE}
 peak.radio <- radio.accidents.df[radio.accidents.df$Hora >= "2025-08-01 20:00" & radio.accidents.df$Hora <= "2025-08-01 22:00",]
 ggplot(peak.radio) +
   geom_bar(aes(x = dir, fill = dir))
 ```
 
 
-```{r radio.accidents.df4, echo=FALSE}
+```{r radio.accidents.df4, echo=FALSE, warning=FALSE}
 ggplot() +
   annotation_map_tile(type = "osm", zoom = 10) +
   geom_point(data = peak.radio, aes(x = lng, y = lat, colour = dir)) +
@@ -1397,13 +1398,13 @@ ggplot() +
 ```
 
 
-```{r chiguayante.speed.df0, echo=FALSE}
+```{r chiguayante.speed.df0, echo=FALSE, warning=FALSE}
 ggplot(chiguayante.speed.df) +
   geom_density(aes(x = `Velocidad [km/hr]`, colour = Vehículo))
 ```
 
 
-```{r chiguayante.speed.df1, echo=FALSE}
+```{r chiguayante.speed.df1, echo=FALSE, warning=FALSE}
 ggplot(chiguayante.speed.df) +
   geom_density(aes(x = Hora %>% as.numeric(), colour = Vehículo)) + 
   scale_x_continuous(
@@ -1417,7 +1418,7 @@ ggplot(chiguayante.speed.df) +
 ```
 
 
-```{r chiguayante.speed.df2, echo=FALSE}
+```{r chiguayante.speed.df2, echo=FALSE, warning=FALSE}
 ggplot(chiguayante.speed.df) +
   geom_bar(aes(y = Vehículo %>% 
     fct_infreq() %>%
@@ -1426,13 +1427,13 @@ ggplot(chiguayante.speed.df) +
 ```
 
 
-```{r chiguayante.speed.df3, echo=FALSE}
+```{r chiguayante.speed.df3, echo=FALSE, warning=FALSE}
 ggplot(chiguayante.speed.df) +
   geom_density(aes(x = `Velocidad [km/hr]`, colour = dirección))
 ```
 
 
-```{r chiguayante.speed.df4, echo=FALSE}
+```{r chiguayante.speed.df4, echo=FALSE, warning=FALSE}
 ggplot(chiguayante.speed.df) +
   geom_density(aes(x = Hora %>% as.numeric(), colour = dirección)) + 
   scale_x_continuous(
@@ -1446,7 +1447,7 @@ ggplot(chiguayante.speed.df) +
 ```
 
 
-```{r chiguayante.speed.df5, echo=FALSE}
+```{r chiguayante.speed.df5, echo=FALSE, warning=FALSE}
 ggplot(chiguayante.speed.df) +
   geom_point(aes(x = Hora %>% as.numeric(), y = `Velocidad [km/hr]`, colour = Vehículo)) + 
   scale_x_continuous(
@@ -1460,7 +1461,7 @@ ggplot(chiguayante.speed.df) +
 ```
 
 
-```{r chiguayante.speed.df6, echo=FALSE}
+```{r chiguayante.speed.df6, echo=FALSE, warning=FALSE}
 ggplot(chiguayante.speed.df) +
   geom_point(aes(x = Hora %>% as.numeric(), y = `Velocidad [km/hr]`, colour = dirección)) + 
   scale_x_continuous(
@@ -1474,7 +1475,7 @@ ggplot(chiguayante.speed.df) +
 ```
 
 
-```{r vega.speed.df0, echo=FALSE}
+```{r vega.speed.df0, echo=FALSE, warning=FALSE}
 p.main <- ggplot(vega.speed.df) +
   geom_density(aes(x = `Velocidad.[km/hr]`, colour = Comentario)) +
   theme(legend.position = "none")
@@ -1492,7 +1493,7 @@ legend %>% grid.draw()
 ```
 
 
-```{r vega.speed.df1, echo=FALSE}
+```{r vega.speed.df1, echo=FALSE, warning=FALSE}
 p.main <- ggplot(vega.speed.df) +
   geom_density(aes(x = Hora %>% as.numeric(), colour = Comentario)) +
   theme(legend.position = "none") + 
@@ -1518,7 +1519,7 @@ legend %>% grid.draw()
 ```
 
 
-```{r vega.speed.df2, echo=FALSE}
+```{r vega.speed.df2, echo=FALSE, warning=FALSE}
 n <- 3
 vega.speed.df.no.na.comment <- vega.speed.df[!(vega.speed.df$Comentario %>% is.na()),]
 top <- vega.speed.df.no.na.comment %>%
@@ -1534,7 +1535,7 @@ ggplot(vega.speed.df.no.na.comment[vega.speed.df.no.na.comment$Comentario %in% t
 ```
 
 
-```{r waze.data0, echo=FALSE}
+```{r waze.data0, echo=FALSE, warning=FALSE}
 n <- 10
 top <- waze.data %>%
   count(Street) %>%
@@ -1551,7 +1552,7 @@ ggplot(waze.data[waze.data$Street %in% top,]) +
 ```
 
 
-```{r waze.data1, echo=FALSE}
+```{r waze.data1, echo=FALSE, warning=FALSE}
 ggplot(waze.data) +
   geom_bar(aes(
     y = City %>%
@@ -1562,21 +1563,21 @@ ggplot(waze.data) +
 ```
 
 
-```{r waze.data2, echo=FALSE}
+```{r waze.data2, echo=FALSE, warning=FALSE}
 ggplot(waze.data) +
   geom_density(aes(x = `Avg Length (Meters)`, colour = Cause)) +
   scale_x_log10()
 ```
 
 
-```{r waze.data3, echo=FALSE}
+```{r waze.data3, echo=FALSE, warning=FALSE}
 ggplot(waze.data) +
   geom_density(aes(x = `Avg Delay (Seconds)`, colour = Cause)) +
   scale_x_log10()
 ```
 
 
-```{r waze.data4, echo=FALSE}
+```{r waze.data4, echo=FALSE, warning=FALSE}
 ggplot(waze.data) +
   geom_density(aes(x = `Impacted Wazers`, colour = Cause)) +
   scale_x_log10()
