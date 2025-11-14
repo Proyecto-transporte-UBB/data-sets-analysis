@@ -1024,9 +1024,79 @@ trafic.alerts$Subtype <- trafic.alerts$Subtype %>% as.factor()
 trafic.alerts %>% summary()
 ```
 
-- "Location" se separó en las columnas "lng" y "lat"
-- "Date" pasó de ser tipo "character" a tipo "Date"
-- "Country", "City", "Type" y "Subtype" pasaron de ser tipo "character" a tipo "factor" para un mejor procesamiento
+El dataset comprende 281759 alertas de tráfico generadas por usuarios de Waze, representando un año completo de reportes ciudadanos sobre condiciones viales en el Gran Concepción.
+
+### Período de Análisis
+
+- **Cobertura temporal**: 23 de junio de 2023 - 15 de mayo de 2024
+- **Duración**: Aproximadamente 11 meses de datos continuos
+- **Registros diarios promedio**: ≈850 alertas por día
+
+### Contexto Geográfico
+
+- **Distribución por ciudad**:
+  - Concepción: 130747 alertas
+  - San Pedro de la Paz: 51816 alertas
+  - Talcahuano: 35122 alertas
+  - Otras comunas: 64074 alertas
+
+### Clasificación de Alertas
+
+**Categorías Principales (Type)**
+
+- **Embottellamiento (JAM)**: 178785 casos
+- **Peligro (HAZARD)**: 53457 casos
+- **Peligro meteorológico (WEATHERHAZARD)**: 35984 casos
+- **Otras categorías**: 13533 casos
+
+**Especificaciones por Subcategoría (Subtype)**
+
+_Embottellamientos (JAM)_:
+
+- Tráfico intenso (JAM_HEAVY_TRAFFIC): 77179 casos
+- Tráfico paralizado (JAM_STAND_STILL_TRAFFIC): 52298 casos
+- Tráfico moderado (JAM_MODERATE_TRAFFIC): 20947 casos
+
+_Peligros (HAZARD)_:
+
+- Vehículo detenido en franja lateral (HAZARD_ON_SHOULDER_CAR_STOPPED): 15869 casos
+- Construcción en la vía (HAZARD_ON_ROAD_CONSTRUCTION): 9458 casos
+- Peligro en la vía (HAZARD_ON_ROAD): 7494 casos
+- Otros peligros: 20636 casos
+
+_Peligros meteorológicos (WEATHERHAZARD)_:
+
+- Vehículo detenido (HAZARD_ON_ROAD_CAR_STOPPED): 9467 casos
+- Construcción en la vía (HAZARD_ON_ROAD_CONSTRUCTION): 6287 casos
+- Vehículo detenido en franja lateral (HAZARD_ON_SHOULDER_CAR_STOPPED): 6097 casos
+- Otros peligros meteorológicos: 14133 casos
+
+### Procesamiento y Normalización de Datos
+
+**Transformación de Coordenadas Geográficas**
+
+- **Problema original**: Campo "Location" en formato WKT (Well-Known Text): `Point(lng lat)`
+- **Solución aplicada**:
+  - Extracción de longitud (`lng`) mediante regex: `(?<=Point\\()-?\\d+\\.?\\d*`
+  - Extracción de latitud (`lat`) mediante regex: `-?\\d+\\.?\\d*(?=\\)$)`
+  - Conversión a tipos numéricos para análisis espacial
+
+**Normalización de Fechas**
+
+- **Formato original**: Día-Mes-Año con abreviaturas en español
+- **Conversión aplicada**:
+  - Mapeo de abreviaturas españolas a inglesas: `{"ene":"jan", "feb":"feb", ..., "dic":"dec"}`
+  - Transformación a formato Date usando `dmy()`
+
+**Optimización para Análisis**
+
+- **Tipificación categórica**: Conversión a factor de 4 variables clave:
+  - Country
+  - City
+  - Type
+  - Subtype
+- Eliminación de redundancias: Remoción de columna "Location" original
+- Estructura final: Dataset con 281759 registros × 8 columnas optimizadas
 
 ## Copia de Accidentes.csv
 
@@ -1047,9 +1117,54 @@ accidents$City <- accidents$City %>% as.factor()
 accidents %>% summary()
 ```
 
-- "Location" se separó en las columnas "lng" y "lat"
-- "Date" pasó de ser tipo "character" a tipo "Date"
-- "Country" y "City" pasaron de ser tipo "character" a tipo "factor" para un mejor procesamiento
+El dataset contiene 281981 registros de accidentes de tránsito, proporcionando una visión detallada de la siniestralidad vial en el Gran Concepción durante un período de 11 meses.
+
+### Período de Monitoreo
+
+- **Cobertura temporal**: 23 de junio de 2023 - 15 de mayo de 2024
+- **Duración**: 327 días de reportes continuos
+- **Densidad de datos**: ≈862 accidentes reportados por día en promedio
+
+### Contexto Geográfico
+
+- **Distribución por ciudad**:
+  - Concepción: 130516 alertas
+  - San Pedro de la Paz: 51704 alertas
+  - Talcahuano: 35059 alertas
+  - Otras comunas: 64702 alertas
+
+### Métricas de Confiabilidad
+
+- **Rango de fiabilidad**: 5 a 10 puntos (escala no especificada)
+- **Fiabilidad promedio**: 5.82 puntos
+- **Fiabilidad mediana**: 5 puntos
+- **Distribución**: Sesgada hacia valores bajos-medios de la escala
+
+### Procesamiento y Normalización de Datos
+
+**Transformación de Georreferenciación**
+
+- **Formato original**: Campo "Location" en estándar WKT (Well-Known Text)
+- **Metodología de extracción**:
+  - Longitud (`lng`): Patrón regex `(?<=Point\\()-?\\d+\\.?\\d*`
+  - Latitud (`lat`): Patrón regex `-?\\d+\\.?\\d*(?=\\)$)`
+- **Resultado**: Coordenadas decimales para análisis geoespacial avanzado
+
+**Estandarización de Fechas**
+
+- **Problema identificado**: Nomenclatura de meses en español
+- **Solución implementada**:
+  - Mapeo sistemático: `{"ene":"jan", "feb":"feb", ..., "dic":"dec"}`
+  - Conversión robusta mediante función `dmy()`
+- **Output**: Timeline consistente para análisis temporal
+
+**Optimización de Estructura de Datos**
+
+- **Eliminación de redundancias**: Remoción de columna "Location" original
+- **Normalización categórica**:
+  - `Country` y `City` convertidas a tipo factor
+  - Habilitación de análisis agregados por ubicación
+- **Dataset final**: 281981 registros × 7 columnas optimizadas
 
 ## Waze for Cities Data Key Alerts Dashboard_Traffic Irregularities_Tabla(1).csv
 
