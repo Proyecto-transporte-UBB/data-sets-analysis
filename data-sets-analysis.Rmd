@@ -1255,12 +1255,17 @@ El dataset contiene 13502 registros de irregularidades de tráfico documentadas 
 
 # Visualizar datos
 
+## Accidentes interurbanos
+
+### Distribución por tipo de accidente según CONASET
+
 ```{r interurban.bus.accidents0, echo=FALSE, warning=FALSE}
 ggplot(interurban.bus.accidents) +
   geom_bar(aes(x = `Tipo (CONASET)` %>% fct_infreq())) +
   labs(x = "Tipo (CONASET)")
 ```
 
+### Distribución por tipo de accidente
 
 ```{r interurban.bus.accidents1, echo=FALSE, warning=FALSE}
 ggplot(interurban.bus.accidents) +
@@ -1268,6 +1273,7 @@ ggplot(interurban.bus.accidents) +
   labs(fill = "Tipo (CONASET)", y = "Tipo Accidente")
 ```
 
+### Distribución por causa del accidente según CONASET
 
 ```{r interurban.bus.accidents2, echo=FALSE, warning=FALSE}
 ggplot(interurban.bus.accidents) +
@@ -1275,6 +1281,7 @@ ggplot(interurban.bus.accidents) +
   labs(y = "Causa (CONASET)")
 ```
 
+### Distribución por región del accidente
 
 ```{r interurban.bus.accidents3, echo=FALSE, warning=FALSE}
 ggplot(interurban.bus.accidents) +
@@ -1282,6 +1289,7 @@ ggplot(interurban.bus.accidents) +
   labs(y = "Región")
 ```
 
+### 10 comunas con más accidentes
 
 ```{r interurban.bus.accidents4, echo=FALSE, warning=FALSE}
 n <- 10
@@ -1299,26 +1307,39 @@ ggplot(interurban.bus.accidents[interurban.bus.accidents$Comuna %in% top,]) +
   labs(y = "Comuna")
 ```
 
+## Mediciones de velocidad por satélite
 
 ```{r gh0269290, echo=FALSE, warning=FALSE}
 ggplot(gh026929) +
   geom_density(aes(x = `GPS (2D speed) [m/s]`))
+ggplot() +
+  annotation_map_tile(type = "osm", zoom = 15) +
+  geom_point(data = gh026929, aes(x = `GPS (Long.) [deg]`, y = `GPS (Lat.) [deg]`, colour = `GPS (2D speed) [m/s]`)) +
+  labs(x = "Longitud", y = "Latitud") +
+  coord_sf(crs = 4326)
 ```
 
+Los datos son de diferentes puntos de la Ruta 160 de San Pedro de la Paz
+
+## Accidentes reportados por carabineros
+
+### Distribución por tipo
 
 ```{r police.accidents0, echo=FALSE, warning=FALSE}
 ggplot(police.accidents) +
-  geom_bar(aes(y = TIPO %>% fct_infreq() %>% fct_rev(), fill = SECTOR)) +
+  geom_bar(aes(y = TIPO %>% fct_infreq() %>% fct_rev(), fill = `MACRO TIPO`)) +
   labs(y = "TIPO")
 ```
 
+### Distribución por región
 
 ```{r police.accidents1, echo=FALSE, warning=FALSE}
 ggplot(police.accidents) +
-  geom_bar(aes(y = ZONA %>% fct_infreq() %>% fct_rev(), fill = SECTOR)) +
+  geom_bar(aes(y = ZONA %>% fct_infreq() %>% fct_rev(), fill = `MACRO TIPO`)) +
   labs(y = "ZONA")
 ```
 
+### 10 comunas con más accidentes
 
 ```{r police.accidents2, echo=FALSE, warning=FALSE}
 n <- 10
@@ -1336,28 +1357,34 @@ ggplot(police.accidents[police.accidents$COMUNA %in% top,]) +
   labs(y = "COMUNA")
 ```
 
+### Distribución por fecha
 
 ```{r police.accidents3, echo=FALSE, warning=FALSE}
 ggplot(police.accidents) +
-  geom_bar(aes(x = FECHA %>% as.Date(), fill = police.accidents$SECTOR)) +
-  labs(x = "FECHA", fill = "SECTOR")
+  geom_bar(aes(x = FECHA %>% as.Date(), fill = `MACRO TIPO`)) +
+  labs(x = "FECHA")
 ```
 
+### Distribución por día de la semana
 
 ```{r police.accidents4, echo=FALSE, warning=FALSE}
 w.days <- c("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")
 ggplot(police.accidents) +
-  geom_bar(aes(x = FECHA %>% weekdays() %>% factor(levels = w.days), fill = police.accidents$SECTOR)) +
-  labs(x = "DÍA", fill = "SECTOR")
+  geom_bar(aes(x = FECHA %>% weekdays() %>% factor(levels = w.days), fill = `MACRO TIPO`)) +
+  labs(x = "DÍA")
 ```
 
+### Distribución por hora
 
 ```{r police.accidents5, echo=FALSE, warning=FALSE}
 ggplot(police.accidents) +
-  geom_bar(aes(x = FECHA %>% hour(), fill = police.accidents$SECTOR)) +
-  labs(x = "HORA", fill = "SECTOR")
+  geom_bar(aes(x = FECHA %>% hour(), fill = `MACRO TIPO`)) +
+  labs(x = "HORA")
 ```
 
+## Incidentes reportados por radio
+
+### Distribución por fecha y hora
 
 ```{r radio.accidents.df0, echo=FALSE, warning=FALSE}
 ggplot(radio.accidents.df) +
@@ -1365,6 +1392,7 @@ ggplot(radio.accidents.df) +
   labs(x = "Fecha", fill = "Hora")
 ```
 
+### Distribución por día de la semana
 
 ```{r radio.accidents.df1, echo=FALSE, warning=FALSE}
 ggplot(radio.accidents.df) +
@@ -1372,6 +1400,7 @@ ggplot(radio.accidents.df) +
   labs(x = "Día", fill = "Semana")
 ```
 
+### Distribución por hora
 
 ```{r radio.accidents.df2, echo=FALSE, warning=FALSE}
 ggplot(radio.accidents.df) +
@@ -1381,28 +1410,37 @@ ggplot(radio.accidents.df) +
 
 Hubo una gran cantidad de incidentes el día viernes 1ro de agosto a las 21 horas
 
+### Distribución por tipo de incidente durante el 1ro de agosto entre las 20 y 22 horas
 
 ```{r radio.accidents.df3, echo=FALSE, warning=FALSE}
 peak.radio <- radio.accidents.df[radio.accidents.df$Hora >= "2025-08-01 20:00" & radio.accidents.df$Hora <= "2025-08-01 22:00",]
 ggplot(peak.radio) +
-  geom_bar(aes(x = dir, fill = dir))
+  geom_bar(aes(fill = dir, y = `Tipo de incidente` %>%
+      fct_infreq() %>%
+      fct_rev())) +
+  labs(y = "Tipo de incidente")
 ```
 
+### Distribución geográfica durante el 1ro de agosto entre las 20 y 22 horas
 
 ```{r radio.accidents.df4, echo=FALSE, warning=FALSE}
 ggplot() +
   annotation_map_tile(type = "osm", zoom = 10) +
-  geom_point(data = peak.radio, aes(x = lng, y = lat, colour = dir)) +
+  geom_point(data = peak.radio, aes(x = lng, y = lat, colour = `Tipo de incidente`)) +
   labs(x = "Longitud", y = "Latitud") +
   coord_sf(crs = 4326)
 ```
 
+## Mediciones de velocidad en paradero "Bdo O'Higgins - Arauco", Chiguayante
+
+### Velocidades por vehículo
 
 ```{r chiguayante.speed.df0, echo=FALSE, warning=FALSE}
 ggplot(chiguayante.speed.df) +
   geom_density(aes(x = `Velocidad [km/hr]`, colour = Vehículo))
 ```
 
+### Horas por vehículo
 
 ```{r chiguayante.speed.df1, echo=FALSE, warning=FALSE}
 ggplot(chiguayante.speed.df) +
@@ -1417,6 +1455,7 @@ ggplot(chiguayante.speed.df) +
   )
 ```
 
+### Distribución por vehículo
 
 ```{r chiguayante.speed.df2, echo=FALSE, warning=FALSE}
 ggplot(chiguayante.speed.df) +
@@ -1426,12 +1465,14 @@ ggplot(chiguayante.speed.df) +
   labs(y = "Vehículo")
 ```
 
+### Velocidades por dirección
 
 ```{r chiguayante.speed.df3, echo=FALSE, warning=FALSE}
 ggplot(chiguayante.speed.df) +
   geom_density(aes(x = `Velocidad [km/hr]`, colour = dirección))
 ```
 
+### Horas por dirección
 
 ```{r chiguayante.speed.df4, echo=FALSE, warning=FALSE}
 ggplot(chiguayante.speed.df) +
@@ -1446,6 +1487,9 @@ ggplot(chiguayante.speed.df) +
   )
 ```
 
+### Distribución por Velocidad y Hora
+
+**Por Velocidad**
 
 ```{r chiguayante.speed.df5, echo=FALSE, warning=FALSE}
 ggplot(chiguayante.speed.df) +
@@ -1460,6 +1504,7 @@ ggplot(chiguayante.speed.df) +
   )
 ```
 
+**Por dirección**
 
 ```{r chiguayante.speed.df6, echo=FALSE, warning=FALSE}
 ggplot(chiguayante.speed.df) +
@@ -1474,6 +1519,9 @@ ggplot(chiguayante.speed.df) +
   )
 ```
 
+## Mediciones de velocidad en el cruce de Briceños con Miraflores
+
+### Velocidades por comentario
 
 ```{r vega.speed.df0, echo=FALSE, warning=FALSE}
 p.main <- ggplot(vega.speed.df) +
@@ -1492,6 +1540,7 @@ grid.newpage()
 legend %>% grid.draw()
 ```
 
+### Horas por comentario
 
 ```{r vega.speed.df1, echo=FALSE, warning=FALSE}
 p.main <- ggplot(vega.speed.df) +
@@ -1518,6 +1567,7 @@ grid.newpage()
 legend %>% grid.draw()
 ```
 
+### 3 comentarios más frecuentes
 
 ```{r vega.speed.df2, echo=FALSE, warning=FALSE}
 n <- 3
@@ -1534,6 +1584,578 @@ ggplot(vega.speed.df.no.na.comment[vega.speed.df.no.na.comment$Comentario %in% t
   labs(y = "Comentario")
 ```
 
+## Alertas GPS
+
+### Eventos por localización
+
+**Chile**
+
+```{r gps.events0, echo=FALSE, warning=FALSE}
+gps.events.chile <- gps.events[gps.events$longitud_ <= -71,]
+ggplot() +
+  annotation_map_tile(type = "osm", zoom = 17) +
+  geom_point(data = gps.events.chile, aes(x = longitud_, y = latitud_, colour = evento_, size = direccion_)) +
+  labs(x = "Longitud", y = "Latitud") +
+  coord_sf(crs = 4326)
+```
+
+**Argentina**
+
+```{r gps.events1, echo=FALSE, warning=FALSE}
+gps.events.argentina <- gps.events[gps.events$longitud_ > -71,]
+ggplot() +
+  annotation_map_tile(type = "osm", zoom = 15) +
+  geom_point(data = gps.events.argentina, aes(x = longitud_, y = latitud_, colour = evento_, size = direccion_)) +
+  labs(x = "Longitud", y = "Latitud") +
+  coord_sf(crs = 4326)
+```
+
+
+## Inventario de de cámaras de vigilancia
+
+### Distribución por columna
+
+```{r biobio.inventary0, echo=FALSE, warning=FALSE}
+biobio.inventary.online <- biobio.inventary[biobio.inventary$ESTADO == "Online",]
+ggplot(biobio.inventary.online) +
+  geom_bar(aes(y = COMUNA %>%
+    fct_infreq() %>%
+    fct_rev(),
+  fill = `MARCA DE LA CÁMARA` %>%
+    fct_infreq() %>%
+    fct_rev())) +
+  labs(y = "COMUNA", fill = "MARCA DE LA CÁMARA")
+```
+
+### Distribución por modelo
+
+```{r biobio.inventary1, echo=FALSE, warning=FALSE}
+ggplot(biobio.inventary.online) +
+  geom_bar(aes(y = `MODELO DE LA CÁMARA` %>%
+    fct_infreq() %>%
+    fct_rev(),
+  fill = `MARCA DE LA CÁMARA`)) +
+  labs(y = "MODELO DE LA CÁMARA")
+```
+
+
+### Marca de la cámara por localización
+
+**Concepción**
+
+```{r biobio.inventary2, echo=FALSE, warning=FALSE}
+ggplot() +
+  annotation_map_tile(type = "osm", zoom = 15) +
+  geom_point(data = biobio.inventary.online[biobio.inventary.online$COMUNA == "Concepción" & biobio.inventary.online$LATITUD < -36.6,], aes(x = LONGITUD, y = LATITUD, colour = `MARCA DE LA CÁMARA`, size = 2)) +
+  labs(x = "Longitud", y = "Latitud") +
+  coord_sf(crs = 4326) +
+  guides(size = "none")
+```
+
+**San Pedro de la Paz**
+
+```{r biobio.inventary3, echo=FALSE, warning=FALSE}
+ggplot() +
+  annotation_map_tile(type = "osm", zoom = 15) +
+  geom_point(data = biobio.inventary.online[biobio.inventary.online$COMUNA == "San Pedro de la Paz" & biobio.inventary.online$LONGITUD > -73.3,], aes(x = LONGITUD, y = LATITUD, colour = `MARCA DE LA CÁMARA`, size = 2)) +
+  labs(x = "Longitud", y = "Latitud") +
+  coord_sf(crs = 4326) +
+  guides(size = "none")
+```
+
+**Chiguayante**
+
+```{r biobio.inventary4, echo=FALSE, warning=FALSE}
+ggplot() +
+  annotation_map_tile(type = "osm", zoom = 15) +
+  geom_point(data = biobio.inventary.online[biobio.inventary.online$COMUNA == "Chiguayante",], aes(x = LONGITUD, y = LATITUD, colour = `MARCA DE LA CÁMARA`, size = 2)) +
+  labs(x = "Longitud", y = "Latitud") +
+  coord_sf(crs = 4326) +
+  guides(size = "none")
+```
+
+**Talcahuano**
+
+```{r biobio.inventary5, echo=FALSE, warning=FALSE}
+ggplot() +
+  annotation_map_tile(type = "osm", zoom = 20) +
+  geom_point(data = biobio.inventary.online[biobio.inventary.online$COMUNA == "Talcahuano",], aes(x = LONGITUD, y = LATITUD, colour = `MARCA DE LA CÁMARA`, size = 2)) +
+  labs(x = "Longitud", y = "Latitud") +
+  coord_sf(crs = 4326) +
+  guides(size = "none")
+```
+
+### Distribución de las fechas de integración
+
+```{r biobio.inventary6, echo=FALSE, warning=FALSE}
+ggplot(biobio.inventary) +
+  geom_density(aes(x = `FECHA INTEGRACION`, colour = COMUNA))
+```
+
+## Alertas de Tráfico
+
+### Distribución por ciudad
+
+```{r trafic.alerts0, echo=FALSE, warning=FALSE}
+ggplot(trafic.alerts) +
+  geom_bar(aes(y = City %>%
+    fct_infreq() %>%
+    fct_rev(),
+  fill = Type %>%
+    fct_infreq() %>%
+    fct_rev()
+  )) +
+  labs(y = "City", fill = "Type")
+```
+
+### Distribución por subtipo
+
+```{r trafic.alerts1, echo=FALSE, warning=FALSE}
+n <- 6
+top <- trafic.alerts[!(trafic.alerts$Subtype %>% is.na()),] %>%
+  count(Subtype) %>%
+  slice_max(n, n = n) %>%
+  pull(Subtype)
+ggplot(trafic.alerts[trafic.alerts$Subtype %in% top,]) +
+  geom_bar(aes(y = Subtype %>%
+    fct_infreq() %>%
+    fct_lump_n(n = n, ties.method = "first") %>%
+    fct_rev(),
+  fill = Type %>%
+    fct_infreq() %>%
+    fct_rev()
+  )) +
+  labs(y = "Subtype", fill = "Type")
+```
+
+### Distribución geográfica
+
+**Concepción, San Pedro de la Paz, Talcahuano, Hualpén, Penco y Hualqui**
+
+_JAM_
+
+```{r trafic.alerts2, echo=FALSE, warning=FALSE}
+ggplot() +
+  annotation_map_tile(type = "osm", zoom = 12) +
+  stat_density_2d(
+    data = trafic.alerts[trafic.alerts$City %in% c("Concepción", "San Pedro de la Paz", "Talcahuano", "Hualpén", "Penco", "Hualqui") & trafic.alerts$Type == "JAM",],
+    aes(x = lng, y = lat, fill = after_stat(level)),
+    geom = "polygon", 
+    alpha = 0.5
+  ) +
+  labs(x = "Longitud", y = "Latitud") +
+  coord_sf(crs = 4326) +
+  guides(size = "none")
+```
+
+_HAZARD_
+
+```{r trafic.alerts3, echo=FALSE, warning=FALSE}
+ggplot() +
+  annotation_map_tile(type = "osm", zoom = 12) +
+  stat_density_2d(
+    data = trafic.alerts[trafic.alerts$City %in% c("Concepción", "San Pedro de la Paz", "Talcahuano", "Hualpén", "Penco", "Hualqui") & trafic.alerts$Type == "HAZARD",],
+    aes(x = lng, y = lat, fill = after_stat(level)),
+    geom = "polygon", 
+    alpha = 0.5
+  ) +
+  labs(x = "Longitud", y = "Latitud") +
+  coord_sf(crs = 4326) +
+  guides(size = "none")
+```
+
+_WEATHERHAZARD_
+
+```{r trafic.alerts4, echo=FALSE, warning=FALSE}
+ggplot() +
+  annotation_map_tile(type = "osm", zoom = 12) +
+  stat_density_2d(
+    data = trafic.alerts[trafic.alerts$City %in% c("Concepción", "San Pedro de la Paz", "Talcahuano", "Hualpén", "Penco", "Hualqui") & trafic.alerts$Type == "WEATHERHAZARD",],
+    aes(x = lng, y = lat, fill = after_stat(level)),
+    geom = "polygon", 
+    alpha = 0.5
+  ) +
+  labs(x = "Longitud", y = "Latitud") +
+  coord_sf(crs = 4326) +
+  guides(size = "none")
+```
+
+_ACCIDENT_
+
+```{r trafic.alerts5, echo=FALSE, warning=FALSE}
+ggplot() +
+  annotation_map_tile(type = "osm", zoom = 12) +
+  stat_density_2d(
+    data = trafic.alerts[trafic.alerts$City %in% c("Concepción", "San Pedro de la Paz", "Talcahuano", "Hualpén", "Penco", "Hualqui") & trafic.alerts$Type == "ACCIDENT",],
+    aes(x = lng, y = lat, fill = after_stat(level)),
+    geom = "polygon", 
+    alpha = 0.5
+  ) +
+  labs(x = "Longitud", y = "Latitud") +
+  coord_sf(crs = 4326) +
+  guides(size = "none")
+```
+
+_ROAD_CLOSED_
+
+```{r trafic.alerts6, echo=FALSE, warning=FALSE}
+ggplot() +
+  annotation_map_tile(type = "osm", zoom = 12) +
+  stat_density_2d(
+    data = trafic.alerts[trafic.alerts$City %in% c("Concepción", "San Pedro de la Paz", "Talcahuano", "Hualpén", "Penco", "Hualqui") & trafic.alerts$Type == "ROAD_CLOSED",],
+    aes(x = lng, y = lat, fill = after_stat(level)),
+    geom = "polygon", 
+    alpha = 0.5
+  ) +
+  labs(x = "Longitud", y = "Latitud") +
+  coord_sf(crs = 4326) +
+  guides(size = "none")
+```
+
+**Los Ángeles**
+
+```{r trafic.alerts7, echo=FALSE, warning=FALSE}
+ggplot() +
+  annotation_map_tile(type = "osm", zoom = 15) +
+  stat_density_2d(
+    data = trafic.alerts[trafic.alerts$City == "Los Ángeles" & trafic.alerts$Type == "JAM",],
+    aes(x = lng, y = lat, fill = after_stat(level)),
+    geom = "polygon", 
+    alpha = 0.5
+  ) +
+  labs(x = "Longitud", y = "Latitud") +
+  coord_sf(crs = 4326) +
+  guides(size = "none")
+```
+
+_HAZARD_
+
+```{r trafic.alerts8, echo=FALSE, warning=FALSE}
+ggplot() +
+  annotation_map_tile(type = "osm", zoom = 15) +
+  stat_density_2d(
+    data = trafic.alerts[trafic.alerts$City == "Los Ángeles" & trafic.alerts$Type == "HAZARD",],
+    aes(x = lng, y = lat, fill = after_stat(level)),
+    geom = "polygon", 
+    alpha = 0.5
+  ) +
+  labs(x = "Longitud", y = "Latitud") +
+  coord_sf(crs = 4326) +
+  guides(size = "none")
+```
+
+_WEATHERHAZARD_
+
+```{r trafic.alerts9, echo=FALSE, warning=FALSE}
+ggplot() +
+  annotation_map_tile(type = "osm", zoom = 15) +
+  stat_density_2d(
+    data = trafic.alerts[trafic.alerts$City == "Los Ángeles" & trafic.alerts$Type == "WEATHERHAZARD",],
+    aes(x = lng, y = lat, fill = after_stat(level)),
+    geom = "polygon", 
+    alpha = 0.5
+  ) +
+  labs(x = "Longitud", y = "Latitud") +
+  coord_sf(crs = 4326) +
+  guides(size = "none")
+```
+
+_ACCIDENT_
+
+```{r trafic.alerts10, echo=FALSE, warning=FALSE}
+ggplot() +
+  annotation_map_tile(type = "osm", zoom = 15) +
+  stat_density_2d(
+    data = trafic.alerts[trafic.alerts$City == "Los Ángeles" & trafic.alerts$Type == "ACCIDENT",],
+    aes(x = lng, y = lat, fill = after_stat(level)),
+    geom = "polygon", 
+    alpha = 0.5
+  ) +
+  labs(x = "Longitud", y = "Latitud") +
+  coord_sf(crs = 4326) +
+  guides(size = "none")
+```
+
+_ROAD_CLOSED_
+
+```{r trafic.alerts11, echo=FALSE, warning=FALSE}
+ggplot() +
+  annotation_map_tile(type = "osm", zoom = 15) +
+  stat_density_2d(
+    data = trafic.alerts[trafic.alerts$City == "Los Ángeles" & trafic.alerts$Type == "ROAD_CLOSED",],
+    aes(x = lng, y = lat, fill = after_stat(level)),
+    geom = "polygon", 
+    alpha = 0.5
+  ) +
+  labs(x = "Longitud", y = "Latitud") +
+  coord_sf(crs = 4326) +
+  guides(size = "none")
+```
+
+**Chiguayante**
+
+_JAM_
+
+```{r trafic.alerts12, echo=FALSE, warning=FALSE}
+ggplot() +
+  annotation_map_tile(type = "osm", zoom = 15) +
+  stat_density_2d(
+    data = trafic.alerts[trafic.alerts$City == "Chiguayante" & trafic.alerts$Type == "JAM",],
+    aes(x = lng, y = lat, fill = after_stat(level)),
+    geom = "polygon", 
+    alpha = 0.5
+  ) +
+  labs(x = "Longitud", y = "Latitud") +
+  coord_sf(crs = 4326) +
+  guides(size = "none")
+```
+
+_HAZARD_
+
+```{r trafic.alerts13, echo=FALSE, warning=FALSE}
+ggplot() +
+  annotation_map_tile(type = "osm", zoom = 15) +
+  stat_density_2d(
+    data = trafic.alerts[trafic.alerts$City == "Chiguayante" & trafic.alerts$Type == "HAZARD",],
+    aes(x = lng, y = lat, fill = after_stat(level)),
+    geom = "polygon", 
+    alpha = 0.5
+  ) +
+  labs(x = "Longitud", y = "Latitud") +
+  coord_sf(crs = 4326) +
+  guides(size = "none")
+```
+
+_WEATHERHAZARD_
+
+```{r trafic.alerts14, echo=FALSE, warning=FALSE}
+ggplot() +
+  annotation_map_tile(type = "osm", zoom = 15) +
+  stat_density_2d(
+    data = trafic.alerts[trafic.alerts$City == "Chiguayante" & trafic.alerts$Type == "WEATHERHAZARD",],
+    aes(x = lng, y = lat, fill = after_stat(level)),
+    geom = "polygon", 
+    alpha = 0.5
+  ) +
+  labs(x = "Longitud", y = "Latitud") +
+  coord_sf(crs = 4326) +
+  guides(size = "none")
+```
+
+_ACCIDENT_
+
+```{r trafic.alerts15, echo=FALSE, warning=FALSE}
+ggplot() +
+  annotation_map_tile(type = "osm", zoom = 15) +
+  stat_density_2d(
+    data = trafic.alerts[trafic.alerts$City == "Chiguayante" & trafic.alerts$Type == "ACCIDENT",],
+    aes(x = lng, y = lat, fill = after_stat(level)),
+    geom = "polygon", 
+    alpha = 0.5
+  ) +
+  labs(x = "Longitud", y = "Latitud") +
+  coord_sf(crs = 4326) +
+  guides(size = "none")
+```
+
+_ROAD_CLOSED_
+
+```{r trafic.alerts16, echo=FALSE, warning=FALSE}
+ggplot() +
+  annotation_map_tile(type = "osm", zoom = 15) +
+  stat_density_2d(
+    data = trafic.alerts[trafic.alerts$City == "Chiguayante" & trafic.alerts$Type == "ROAD_CLOSED",],
+    aes(x = lng, y = lat, fill = after_stat(level)),
+    geom = "polygon", 
+    alpha = 0.5
+  ) +
+  labs(x = "Longitud", y = "Latitud") +
+  coord_sf(crs = 4326) +
+  guides(size = "none")
+```
+
+**Tomé**
+
+_JAM_
+
+```{r trafic.alerts17, echo=FALSE, warning=FALSE}
+ggplot() +
+  annotation_map_tile(type = "osm", zoom = 15) +
+  stat_density_2d(
+    data = trafic.alerts[trafic.alerts$City == "Tomé" & trafic.alerts$Type == "JAM",],
+    aes(x = lng, y = lat, fill = after_stat(level)),
+    geom = "polygon", 
+    alpha = 0.5
+  ) +
+  labs(x = "Longitud", y = "Latitud") +
+  coord_sf(crs = 4326) +
+  guides(size = "none")
+```
+
+_HAZARD_
+
+```{r trafic.alerts18, echo=FALSE, warning=FALSE}
+ggplot() +
+  annotation_map_tile(type = "osm", zoom = 15) +
+  stat_density_2d(
+    data = trafic.alerts[trafic.alerts$City == "Tomé" & trafic.alerts$Type == "HAZARD",],
+    aes(x = lng, y = lat, fill = after_stat(level)),
+    geom = "polygon", 
+    alpha = 0.5
+  ) +
+  labs(x = "Longitud", y = "Latitud") +
+  coord_sf(crs = 4326) +
+  guides(size = "none")
+```
+
+_WEATHERHAZARD_
+
+```{r trafic.alerts19, echo=FALSE, warning=FALSE}
+ggplot() +
+  annotation_map_tile(type = "osm", zoom = 15) +
+  stat_density_2d(
+    data = trafic.alerts[trafic.alerts$City == "Tomé" & trafic.alerts$Type == "WEATHERHAZARD",],
+    aes(x = lng, y = lat, fill = after_stat(level)),
+    geom = "polygon", 
+    alpha = 0.5
+  ) +
+  labs(x = "Longitud", y = "Latitud") +
+  coord_sf(crs = 4326) +
+  guides(size = "none")
+```
+
+_ACCIDENT_
+
+```{r trafic.alerts20, echo=FALSE, warning=FALSE}
+ggplot() +
+  annotation_map_tile(type = "osm", zoom = 15) +
+  stat_density_2d(
+    data = trafic.alerts[trafic.alerts$City == "Tomé" & trafic.alerts$Type == "ACCIDENT",],
+    aes(x = lng, y = lat, fill = after_stat(level)),
+    geom = "polygon", 
+    alpha = 0.5
+  ) +
+  labs(x = "Longitud", y = "Latitud") +
+  coord_sf(crs = 4326) +
+  guides(size = "none")
+```
+
+_ROAD_CLOSED_
+
+```{r trafic.alerts21, echo=FALSE, warning=FALSE}
+ggplot() +
+  annotation_map_tile(type = "osm", zoom = 15) +
+  stat_density_2d(
+    data = trafic.alerts[trafic.alerts$City == "Tomé" & trafic.alerts$Type == "ROAD_CLOSED",],
+    aes(x = lng, y = lat, fill = after_stat(level)),
+    geom = "polygon", 
+    alpha = 0.5
+  ) +
+  labs(x = "Longitud", y = "Latitud") +
+  coord_sf(crs = 4326) +
+  guides(size = "none")
+```
+
+## Accidentes de tráfico
+
+### Distribución por ciudad
+
+```{r accidents0, echo=FALSE, warning=FALSE}
+ggplot(accidents) +
+  geom_bar(aes(
+    y = City %>%
+    fct_infreq() %>%
+    fct_rev(),
+    fill = `Avg Reliability` %>% round() %>% as.factor())
+  ) +
+  labs(y = "City", fill = "Avg Reliability")
+```
+
+## Distribución geográfica
+
+**Concepción, San Pedro de la Paz, Talcahuano, Hualpén, Penco, Hualqui, Lirquén y Lenga**
+
+```{r accidents1, echo=FALSE, warning=FALSE}
+ggplot() +
+  annotation_map_tile(type = "osm", zoom = 12) +
+  stat_density_2d(
+    data = accidents[accidents$City %in% c("Concepción", "San Pedro de la Paz", "Talcahuano", "Hualpén", "Penco", "Hualqui", "Lirquén", "Lenga"),],
+    aes(x = lng, y = lat, fill = after_stat(level)),
+    geom = "polygon", 
+    alpha = 0.5
+  ) +
+  labs(x = "Longitud", y = "Latitud") +
+  coord_sf(crs = 4326) +
+  guides(size = "none")
+```
+
+**Los Ángeles**
+
+```{r accidents2, echo=FALSE, warning=FALSE}
+ggplot() +
+  annotation_map_tile(type = "osm", zoom = 15) +
+  stat_density_2d(
+    data = accidents[accidents$City == "Los Ángeles",],
+    aes(x = lng, y = lat, fill = after_stat(level)),
+    geom = "polygon", 
+    alpha = 0.5
+  ) +
+  labs(x = "Longitud", y = "Latitud") +
+  coord_sf(crs = 4326) +
+  guides(size = "none")
+```
+
+**Chiguayante**
+
+```{r accidents3, echo=FALSE, warning=FALSE}
+ggplot() +
+  annotation_map_tile(type = "osm", zoom = 15) +
+  stat_density_2d(
+    data = accidents[accidents$City == "Chiguayante",],
+    aes(x = lng, y = lat, fill = after_stat(level)),
+    geom = "polygon", 
+    alpha = 0.5
+  ) +
+  labs(x = "Longitud", y = "Latitud") +
+  coord_sf(crs = 4326) +
+  guides(size = "none")
+```
+
+**Tomé**
+
+```{r accidents4, echo=FALSE, warning=FALSE}
+ggplot() +
+  annotation_map_tile(type = "osm", zoom = 15) +
+  stat_density_2d(
+    data = accidents[accidents$City == "Tomé",],
+    aes(x = lng, y = lat, fill = after_stat(level)),
+    geom = "polygon", 
+    alpha = 0.5
+  ) +
+  labs(x = "Longitud", y = "Latitud") +
+  coord_sf(crs = 4326) +
+  guides(size = "none")
+```
+
+**Huertos Familiares**
+
+```{r accidents5, echo=FALSE, warning=FALSE}
+ggplot() +
+  annotation_map_tile(type = "osm", zoom = 15) +
+  stat_density_2d(
+    data = accidents[accidents$City == "Huertos Familiares",],
+    aes(x = lng, y = lat, fill = after_stat(level)),
+    geom = "polygon", 
+    alpha = 0.5
+  ) +
+  labs(x = "Longitud", y = "Latitud") +
+  coord_sf(crs = 4326) +
+  guides(size = "none")
+```
+
+## Alertas de Waze
+
+### Distribución por calles
 
 ```{r waze.data0, echo=FALSE, warning=FALSE}
 n <- 10
@@ -1548,36 +2170,51 @@ ggplot(waze.data[waze.data$Street %in% top,]) +
     fct_lump_n(n = n, ties.method = "first") %>%
     fct_rev(),
     fill = City)) +
-  labs(title = "Calles de las alertas de Waze", y = "Street")
+  labs(y = "Street")
 ```
 
-
 ```{r waze.data1, echo=FALSE, warning=FALSE}
-ggplot(waze.data) +
+ggplot(waze.data[waze.data$Street %in% top & !(waze.data$Cause %>% is.na()),]) +
+  geom_bar(aes(
+    y = Street %>%
+    fct_infreq() %>%
+    fct_lump_n(n = n, ties.method = "first") %>%
+    fct_rev(),
+    fill = Cause)) +
+  labs(y = "Street")
+```
+
+### Distribución por ciudad
+
+```{r waze.data2, echo=FALSE, warning=FALSE}
+ggplot(waze.data[!(waze.data$Cause %>% is.na()),]) +
   geom_bar(aes(
     y = City %>%
     fct_infreq() %>%
     fct_rev(),
     fill = Cause)) +
-  labs(title = "Causas de las alertas de Waze", y = "City")
+  labs(y = "City")
 ```
 
+### Distribución por largo promedio
 
-```{r waze.data2, echo=FALSE, warning=FALSE}
+```{r waze.data3, echo=FALSE, warning=FALSE}
 ggplot(waze.data) +
   geom_density(aes(x = `Avg Length (Meters)`, colour = Cause)) +
   scale_x_log10()
 ```
 
+### Distribución por desfase promedio
 
-```{r waze.data3, echo=FALSE, warning=FALSE}
+```{r waze.data4, echo=FALSE, warning=FALSE}
 ggplot(waze.data) +
   geom_density(aes(x = `Avg Delay (Seconds)`, colour = Cause)) +
   scale_x_log10()
 ```
 
+### Distribución por usuarios impactados
 
-```{r waze.data4, echo=FALSE, warning=FALSE}
+```{r waze.data5, echo=FALSE, warning=FALSE}
 ggplot(waze.data) +
   geom_density(aes(x = `Impacted Wazers`, colour = Cause)) +
   scale_x_log10()
