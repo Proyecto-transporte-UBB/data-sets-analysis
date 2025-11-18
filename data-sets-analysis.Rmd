@@ -548,15 +548,6 @@ _Mapeo cromático de tipos de incidente_:
 - **Completitud**: Rellenado de horas faltantes con valores anteriores
 - **Estructura de datos**: Conversión de variables clave a tipo factor
 
-**Valor Analítico**
-
-La estandarización aplicada permite:
-
-- Análisis temporal de patrones de congestión
-- Mapeo geográfico de puntos críticos
-- Correlación entre tipos de incidente y direccionalidad
-- Evaluación de completitud y calidad reportística
-
 ## Med velo CHIGUAYANTE.xlsx
 
 ```{r getData4, include=FALSE}
@@ -686,16 +677,6 @@ Variable "Vehículo":
 - **Estructuración**: Conversión de variables clave a tipo factor
 - **Consistencia**: Validación de integridad de datos numéricos
 - **Preparación analítica**: Dataset listo para análisis estadístico y temporal
-
-### Valor Analítico
-
-La base de datos procesada permite:
-
-- Análisis comparativo de velocidades por tipo vehicular
-- Evaluación de patrones horarios de congestión
-- Estudio de distribución direccional del tráfico
-- Identificación de comportamientos vehiculares específicos
-- Benchmarking de velocidades en corredor interurbano
 
 ## Med velo LA VEGA.xlsx
 
