@@ -37,14 +37,29 @@ library(tidyr)
 library(tidyverse)
 library(tidyxl)
 library(viridis)
-load("~/GitHub/data-sets-analysis/.RData")
+```
+
+```{r pre.load, eval=FALSE, include=FALSE}
+key.objects <- c("interurban.bus.accidents", "gh026929", "tracking.gps.df", "police.accidents", "radio.accidents.df", "chiguayante.speed.df", "vega.speed.df", "gps.events", "biobio.inventary", "trafic.alerts", "accidents", "waze.data", "meters.per.degree.lat", "meters.per.degree.lng", "quantum.data")
+deleting.objects <- setdiff(ls(), key.objects)
+rm(list = deleting.objects)
+gc()
+memory.limit()
+memory.size()
+save.image("~/GitHub/data-sets-analysis/.RData")
+```
+
+
+```{r load, include=FALSE}
+options(future.globals.maxSize = 4000 * 1024^2)
+load("~/GitHub/data-sets-analysis/.RData", verbose = T)
 ```
 
 # Extraer datos
 
 ## Siniestros buses interurbanos(1).xlsx
 
-```{r getData0, include=FALSE}
+```{r getData0, eval=FALSE, include=FALSE}
 # Siniestros buses interurbanos(1).xlsx
 interurban.bus.accidents <- read_excel("data/Siniestros buses interurbanos(1).xlsx", 
     col_types = c("numeric", "numeric", "date", 
@@ -67,7 +82,6 @@ interurban.bus.accidents$`Causa Accidente` <- interurban.bus.accidents$`Causa Ac
 interurban.bus.accidents %>% summary()
 interurban.bus.accidents[interurban.bus.accidents$Zona == "RURAL",] %>% nrow() / interurban.bus.accidents %>% nrow() * 100
 ```
-
 
 El análisis comprende 6268 registros de siniestros de buses interurbanos ocurridos entre el 1 de enero de 2014 y el 29 de diciembre de 2023.
 
@@ -97,18 +111,17 @@ El análisis comprende 6268 registros de siniestros de buses interurbanos ocurri
 
 - **Unificación temporal**: Fusión de las columnas "Fecha" y "Hora" en un único campo datetime
 - **Normalización de datos**: Conversión de 8 variables de texto a tipo factor para mejorar el procesamiento estadístico:
-  - "Región"
-  -"Comuna"
-  - "Tipo Accidente"
-  - "Tipo (CONASET)"
-  - "Zona"
-  - "Ubicación Relativa"
-  - "Causa (CONASET)"
-  - "Causa Accidente"
+    - "Región" -"Comuna"
+    - "Tipo Accidente"
+    - "Tipo (CONASET)"
+    - "Zona"
+    - "Ubicación Relativa"
+    - "Causa (CONASET)"
+    - "Causa Accidente"
 
 ## GH026929.xlsx
 
-```{r getData1, include=FALSE}
+```{r getData1, eval=FALSE, include=FALSE}
 # GH026929.xlsx
 gh026929 <- read_excel("data/GH026929.xlsx", 
     range = "A1:L1727", col_types = c("numeric", 
@@ -197,9 +210,179 @@ $$\text{reduce.2d.speed}(n,m)\equiv n\times10^{\lfloor\log_{10}m+1\rfloor-\lfloo
 
 Los ajustes aplicados sugieren que el sistema de captura original podría presentar inconsistencias en el formato de salida numérico, requiriendo post-procesamiento para una interpretación correcta de las mediciones GPS.
 
+## DTPR
+
+```{r getData1.5, eval=FALSE, include=FALSE}
+tracking.route <- "data/Tracking GPS"
+tracking.cols <- c("EVT_REGISTRO_ID", "EVT_OP_TR_ID", "EVT_OP_TE_ID", "EVT_MES_INFORMACION", "EVT_SERVICIO_ID_ORACLE", "EVT_SERVICIO_ID", "EVT_SENTIDO", "EVT_IMEI", "EVT_PPU", "EVT_GPS_TIME_CHILE_STR", "EVT_GPS_TIME_UTC_0", "EVT_GPS_DIR_GEO", "Y_EVT_GPS_LAT", "X_EVT_GPS_LON", "EVT_GPS_VEL", "EVT_GPS_DOP", "EVT_DISTANCIA_RECORRIDA (Km)", "EVT_ESTADO_MOTOR_GPS", "EVT_TIPO_EVENTO", "EVT_TIPO_VIAJE", "EVT_DISTACIA_A_SERVICIO", "EVT_CARPETA")
+folders <- tracking.route %>% list.dirs(recursive = F) %>% basename()
+tracking.gps <- list()
+tracking.read <- list()
+for(folder in folders) {
+  start.sys <- Sys.time()
+  base.route <- paste(tracking.route, folder, "ArchivosTxt", sep = "/") %>% list.files(pattern = "^MNT_TRACKING", full.names = T)
+  df <- base.route %>% read.table(header = F, sep = ";")
+  df$EVT_CARPETA <- folder
+  tracking.gps[[folder]] <- df
+  end.sys <- Sys.time()
+  dt.sys <- end.sys - start.sys
+  tracking.read[[folder]] <- dt.sys
+  print(folder)
+  print(dt.sys)
+}
+# Reading time: 428.22 s = 7 m + 8.22 s
+start.sys <- Sys.time()
+tracking.gps.df <- tracking.gps %>% bind_rows()
+colnames(tracking.gps.df) <- tracking.cols
+end.sys <- Sys.time()
+binding.time <- end.sys - start.sys
+# Binding time: 300.63 s = 5 m + 0.63 s
+start.sys <- Sys.time()
+tracking.gps.df$EVT_SERVICIO_ID <- tracking.gps.df$EVT_SERVICIO_ID %>% as.factor()
+tracking.gps.df$EVT_PPU <- tracking.gps.df$EVT_PPU %>% as.factor()
+tracking.gps.df$EVT_GPS_TIME_CHILE_STR <- tracking.gps.df$EVT_GPS_TIME_CHILE_STR %>% as.POSIXct(format = "%d/%m/%Y %H:%M:%S", tz = "America/Santiago")
+tracking.gps.df$EVT_GPS_TIME_UTC_0 <- tracking.gps.df$EVT_GPS_TIME_UTC_0 %>% as.POSIXct(format = "%d/%m/%Y %H:%M:%S")
+tracking.gps.df$Y_EVT_GPS_LAT <- gsub(",", ".", tracking.gps.df$Y_EVT_GPS_LAT) %>% as.numeric()
+tracking.gps.df$X_EVT_GPS_LON <- gsub(",", ".", tracking.gps.df$X_EVT_GPS_LON) %>% as.numeric()
+tracking.gps.df$`EVT_DISTANCIA_RECORRIDA (Km)` <- gsub(",", ".", tracking.gps.df$`EVT_DISTANCIA_RECORRIDA (Km)`) %>% as.numeric()
+tracking.gps.df$EVT_DISTACIA_A_SERVICIO <- gsub(",", ".", tracking.gps.df$EVT_DISTACIA_A_SERVICIO) %>% as.numeric()
+tracking.gps.df$EVT_CARPETA <- tracking.gps.df$EVT_CARPETA %>% as.factor()
+tracking.gps.df$EVT_SEÑAL <- NA
+tracking.gps.df$EVT_SEÑAL[tracking.gps.df$EVT_GPS_DOP < 1] <- "Excelente"
+tracking.gps.df$EVT_SEÑAL[tracking.gps.df$EVT_GPS_DOP >= 1 & tracking.gps.df$EVT_GPS_DOP < 2] <- "Muy Buena"
+tracking.gps.df$EVT_SEÑAL[tracking.gps.df$EVT_GPS_DOP >= 2 & tracking.gps.df$EVT_GPS_DOP < 5] <- "Buena"
+tracking.gps.df$EVT_SEÑAL[tracking.gps.df$EVT_GPS_DOP >= 5 & tracking.gps.df$EVT_GPS_DOP <= 10] <- "Regular"
+tracking.gps.df$EVT_SEÑAL[tracking.gps.df$EVT_GPS_DOP >= 5 & tracking.gps.df$EVT_GPS_DOP > 10] <- "Mala"
+tracking.gps.df$EVT_SEÑAL <- tracking.gps.df$EVT_SEÑAL %>% as.factor()
+end.sys <- Sys.time()
+modifying.time <- end.sys - start.sys
+# Modifying time: 1807.08 s = 30 m + 7.08 s
+```
+
+```{r getData1.51, eval=FALSE, include=FALSE}
+tracking.gps.df %>% summary()
+```
+
+El dataset consolidado comprende 21683856 registros de telemetría GPS provenientes del sistema de monitoreo de transporte público DTPR, capturados durante el mes de agosto de 2025 a través de 31 unidades operativas diferentes.
+
+### Metadatos de Procesamiento
+
+- **Tiempo total de lectura**: 7 minutos 8.22 segundos
+- **Tiempo de consolidación**: 5 minutos 0.63 segundos
+- **Tiempo de transformación**: 30 minutos 7.08 segundos
+- **Total de procesamiento**: 42 minutos 15.93 segundos
+
+### Período de Monitoreo
+
+- **Fecha inicial**: 1 de agosto de 2025, 00:00:00 (hora Chile)
+- **Fecha final**: 1 de septiembre de 2025, 00:05:27 (hora Chile)
+- **Duración**: 31 días completos + 5 minutos
+- **Cobertura temporal**: Mes completo de agosto 2025
+
+### Características Operacionales del Sistema
+
+**Flota y Rutas Monitoreadas**
+
+- **Rutas más frecuentes**:
+  - "13GS": 617591 registros
+  - "43JT": 500230 registros
+  - "14HT": 481486 registros
+- **Vehículos más activos**:
+  - "FSLC62": 27847 registros
+  - "TTHL10": 25901 registros
+  - "SZDZ86": 25483 registros
+
+**Distribución Direccional**
+
+- **Sentido ida (0)**: 10809559 registros
+- **Sentido vuelta (1)**: 10671146 registros
+- **Sentido indeterminado (-1)**: 203151 registros
+
+**Métricas de Desempeño Técnico**
+
+_Calidad de Señal GPS_
+
+- Muy Buena: 17924666 registros
+- Buena: 966491 registros
+- Regular: 592320 registros
+- Mala: 2200379 registros
+
+_Velocidades Operacionales_
+
+- Rango: 0 - 193 km/h
+- Velocidad promedio: 21.69 km/h
+- Velocidad mediana: 19 km/h
+
+_Estados del Sistema_
+
+- Motor encendido (1): 21619957 registros
+- Motor apagado (0): 63899 registros
+
+### Procesamiento y Normalización de Datos
+
+**Estructuración Multi-carpeta**
+
+- **Estrategia**: Procesamiento paralelo de 31 unidades operativas
+- **Identificación**: Incorporación de metadatos de carpeta origen
+- **Consolidación**: Unificación en dataset coherente
+
+**Transformaciones Aplicadas**
+
+_Normalización Temporal_
+
+- **Timestamp Chile**: Conversión a formato POSIXct
+- **Timestamp UTC**: Sincronización con estándar internacional
+- **Zona horaria**: Conservación de huso local (America/Santiago)
+
+_Clasificación de Calidad de Señal_
+_Escala DOP (Dilution of Precision)_:
+
+- `Excelente`: $DOP < 1$
+- `Muy Buena`: $1 ≤ DOP < 2$
+- `Buena`: $2 ≤ DOP < 5$
+- `Regular`: $5 ≤ DOP ≤ 10$
+- `Mala`: $DOP > 10$
+
+_Optimización de Tipos de Datos_
+
+- **Coordenadas**: Conversión a numérico con estandarización decimal
+- **Identificadores**: Transformación a factores para análisis categórico
+- **Distancias**: Normalización de formatos numéricos
+
+**Variables Críticas Procesadas**
+
+- `EVT_GPS_TIME_CHILE_STR`, `EVT_GPS_TIME_UTC_0` -> POSIXct
+- `EVT_SERVICIO_ID`, `EVT_PPU` -> Factor
+- `Y_EVT_GPS_LAT`, `X_EVT_GPS_LON` -> Numérico
+- `EVT_DISTANCIA_RECORRIDA` -> Numérico
+- `EVT_SEÑAL` -> Factor (derivado de DOP)
+
+### Análisis por Unidad Operativa
+
+**Patrones de Operación por Unidad**
+
+_Frecuencia de Reporte_
+
+- **Típico**: 1:00-1:03 minutos entre registros por vehículo
+- **Variaciones**: UN52_265 muestra intervalos más irregulares (3.5s - 1min)
+- **Consistencia**: Mayoría mantiene intervalos estables
+
+_Distribución por Unidad_
+
+- **Mayor volumen**: UN80_274 (1459884 registros)
+- **Menor volumen**: UN52_265 (118026 registros)
+- **Promedio por unidad**: ~699479 registros
+
+_Características Específicas Destacables_
+
+- **UN13_247**: Operación exclusiva de ruta "13GS"
+- **UN18_254**: Frecuencia muy consistente (1:03-1:03.5 min)
+- **UN22_257**: Mayor variabilidad en intervalos (59s - 22:31 min)
+- **UNB0_277**: Única unidad con datos en septiembre
+
 ## Data accidentes de carabineros.xlsx
 
-```{r getData2, include=FALSE}
+```{r getData2, eval=FALSE, include=FALSE}
 # Data accidentes de carabineros.xlsx
 police.accidents <- read_excel("data/Data accidentes de carabineros.xlsx", 
     col_types = c("numeric", "date", "skip", 
@@ -250,24 +433,24 @@ El dataset comprende 5739 registros de accidentes de tránsito documentados por 
 ### Distribución Geográfica
 
 - **Regiones con mayor siniestralidad**:
-  - Región Metropolitana (1513 casos)
-  - Región del Biobío (699 casos)
-  - Región del Maule (574 casos)
+    - Región Metropolitana (1513 casos)
+    - Región del Biobío (699 casos)
+    - Región del Maule (574 casos)
 - **Comunas más afectadas**:
-  - Concepción (193 accidentes)
-  - Temuco (175 accidentes)
-  - Arica (150 accidentes)
+    - Concepción (193 accidentes)
+    - Temuco (175 accidentes)
+    - Arica (150 accidentes)
 
 ### Clasificación de Accidentes
 
 - **Tipos predominantes**:
-  - Colisión: 2,936 casos
-  - Choque: 1,801 casos
-  - Atropello: 461 casos
+    - Colisión: 2,936 casos
+    - Choque: 1,801 casos
+    - Atropello: 461 casos
 - **Distribución por sector**:
-  - Urbano: 4,432 casos
-  - Rural: 1,304 casos
-  - Vía férrea: 3 casos
+    - Urbano: 4,432 casos
+    - Rural: 1,304 casos
+    - Vía férrea: 3 casos
 
 ### Procesamiento y Normalización de Datos
 
@@ -275,15 +458,15 @@ El dataset comprende 5739 registros de accidentes de tránsito documentados por 
 
 - **Unificación temporal**: Fusión de campos "FECHA" y "HORA" en timestamp único
 - **Normalización de tipos de datos**:
-  - **Conversión a factor**: ZONA, COMUNA, TIPO, CAUSA, SECTOR, TRIBUNAL
-  - **Conversión a numérico**: KM (donde aplicable) y PARTE
+    - **Conversión a factor**: ZONA, COMUNA, TIPO, CAUSA, SECTOR, TRIBUNAL
+    - **Conversión a numérico**: KM (donde aplicable) y PARTE
 
 **Creación de Categorías Agrupadas**
 
 - **Variable "MACRO TIPO"**:
-  - **CHOQUE**: Agrupa "CHOQUE", "CHOQUE FRONTAL", "CHOQUE LATERAL", "CHOQUE POSTERIOR"
-  - **COLISION**: Agrupa "COLISION", "COLISION FRONTAL", "COLISION LATERAL", "COLISION PERPENDICULAR", "COLISION POR ALCANCE"
-  - **Conserva valores originales** para categorías no agrupables
+    - **CHOQUE**: Agrupa "CHOQUE", "CHOQUE FRONTAL", "CHOQUE LATERAL", "CHOQUE POSTERIOR"
+    - **COLISION**: Agrupa "COLISION", "COLISION FRONTAL", "COLISION LATERAL", "COLISION PERPENDICULAR", "COLISION POR ALCANCE"
+    - **Conserva valores originales** para categorías no agrupables
 
 ### Observaciones Relevantes
 
@@ -291,7 +474,7 @@ La concentración temporal del dataset (solo 30 días) permite un análisis deta
 
 ## Incidentes de tráfico radio.xlsx
 
-```{r getData3, include=FALSE}
+```{r getData3, eval=FALSE, include=FALSE}
 # Incidentes de tráfico radio.xlsx
 file.path <- "data/Incidentes de tráfico radio.xlsx"
 sheet.names <- file.path %>% excel_sheets()
@@ -458,6 +641,7 @@ radio.accidents.df$Hora <- paste(radio.accidents.df$fecha, radio.accidents.df$Ho
 radio.accidents.df <- radio.accidents.df %>% select(-fecha)
 radio.accidents.df %>% summary()
 ```
+
 El dataset contiene 312 registros de incidentes de tráfico reportados a través de sistemas de radio durante un período de 37 días.
 
 ### Período de Registro
@@ -468,12 +652,12 @@ El dataset contiene 312 registros de incidentes de tráfico reportados a través
 ### Clasificación de Incidentes
 
 - **Naturaleza del incidente**:
-  - **Incidentes de tráfico**: 263 casos
-  - **No incidentes de tráfico**: 1 caso
-  - **No especificado**: 48 casos
+    - **Incidentes de tráfico**: 263 casos
+    - **No incidentes de tráfico**: 1 caso
+    - **No especificado**: 48 casos
 - **Completitud de reportes**:
-  - **Reportes completos**: 257 casos
-  - **Reportes incompletos**: 55 casos
+    - **Reportes completos**: 257 casos
+    - **Reportes incompletos**: 55 casos
 
 ### Tipología de Incidentes
 
@@ -517,21 +701,21 @@ El dataset contiene 312 registros de incidentes de tráfico reportados a través
 
 **Limpieza y Estandarización**
 
-_Normalización de Variables Categóricas_:
+*Normalización de Variables Categóricas*:
 
 - **"Reporte completo? (SI/NO)"**:
-  - *Valores estandarizados*: "SI" para ["is", "si", "SI", "su"], "NO" para ["no", "NO"]
-  - *Valores excluidos*: "-" convertido a NA
+    - *Valores estandarizados*: "SI" para ["is", "si", "SI", "su"], "NO" para ["no", "NO"]
+    - *Valores excluidos*: "-" convertido a NA
 - **"es incidente de tráfico? (si/no)"**:
-  - *Valores estandarizados*: "SI" para ["si", "SI"], "NO" para ["no", "NO"]
+    - *Valores estandarizados*: "SI" para ["si", "SI"], "NO" para ["no", "NO"]
 - *Direccionalidad ("dir")*:
-  - *Normalización de notaciones*: Unificación de variantes ("e-o" → "E-O", "n-s" → "N-S", etc.)
-  - *Patrones bidireccionales*: Estandarización de formatos compuestos
-  - *Valores inválidos*: ["-", "n/a", "n/A"] convertidos a NA
+    - *Normalización de notaciones*: Unificación de variantes ("e-o" → "E-O", "n-s" → "N-S", etc.)
+    - *Patrones bidireccionales*: Estandarización de formatos compuestos
+    - *Valores inválidos*: ["-", "n/a", "n/A"] convertidos a NA
 
 **Sistema de Clasificación por Color**
 
-_Mapeo cromático de tipos de incidente_:
+*Mapeo cromático de tipos de incidente*:
 
 - `FF00B0F0` → Intervenciones de Emergencia
 - `FF00FFFF`, `FFFFFF00`, `NA` → Congestión
@@ -550,7 +734,7 @@ _Mapeo cromático de tipos de incidente_:
 
 ## Med velo CHIGUAYANTE.xlsx
 
-```{r getData4, include=FALSE}
+```{r getData4, eval=FALSE, include=FALSE}
 # Med velo CHIGUAYANTE.xlsx
 file.path <- "data/Med velo CHIGUAYANTE.xlsx"
 directions <- file.path %>% excel_sheets()
@@ -647,24 +831,24 @@ El dataset contiene 338 mediciones de velocidad vehicular capturadas en el parad
 
 **Limpieza y Estandarización**
 
-_Normalización de Localización_
+*Normalización de Localización*
 
 - **Unificación geográfica**: Campo "Lugar (dirección)" consolidado por hoja
 - **Eliminación de redundancias**: Remoción de 9 columnas vacías o duplicadas (...5 a ...13)
 
-_Procesamiento Temporal_
+*Procesamiento Temporal*
 
 - **Completitud horaria**: Rellenado de valores faltantes usando observaciones anteriores
 - **Formato estandarizado**: Conversión a tipo hms para análisis temporal
 
-_Estandarización de Categorías_
+*Estandarización de Categorías*
 
 Comentarios vehiculares:
 
 - *Maniobras*: Unificación de variantes ["auto, doblo a Lo Plaza", "Auto, doblo a Lo Plaza", "Auto, gira a Lo Plaza"] → "Auto, dobló a Lo Plaza"
 - *Tipos vehiculares*: Normalización de ["camion", "Camion"] → "Camión" y ["micro", "Micro"] → "Micro"
 
-_Clasificación Vehicular Sistematizada_
+*Clasificación Vehicular Sistematizada*
 
 Variable "Vehículo":
 
@@ -680,7 +864,7 @@ Variable "Vehículo":
 
 ## Med velo LA VEGA.xlsx
 
-```{r getData5, include=FALSE}
+```{r getData5, eval=FALSE, include=FALSE}
 #Med velo LA VEGA.xlsx
 file.path <- "data/Med velo LA VEGA.xlsx"
 sheets <- excel_sheets(file.path)
@@ -736,8 +920,8 @@ El dataset contiene 432 mediciones de velocidad vehicular capturadas en el cruce
 
 - **Ubicación**: Esquina Briceños con Miraflores, La Vega
 - **Corredores viales**:
-  - 21 de Mayo → Briceños → Miraflores
-  - Av. Costanera → Miraflores → 21 de Mayo
+    - 21 de Mayo → Briceños → Miraflores
+    - Av. Costanera → Miraflores → 21 de Mayo
 - **Período de medición**: 08:08 a 17:58 horas (fecha no especificada)
 - **Duración**: Aproximadamente 10 horas de monitoreo continuo
 
@@ -786,22 +970,22 @@ El dataset contiene 432 mediciones de velocidad vehicular capturadas en el cruce
 
 **Corrección de Formatos Temporales**
 
-_Normalización de Horarios_
+*Normalización de Horarios*
 
 - **Problema identificado**: Formato decimal incorrecto en celdas horarias (ej: "8,15" en lugar de "8:15")
 - **Solución aplicada**:
-  - Conversión de formato decimal a fracción diaria
-  - Reconstrucción de horas y minutos mediante operaciones matemáticas
-  - Formateo consistente a "HH:MM:SS"
+    - Conversión de formato decimal a fracción diaria
+    - Reconstrucción de horas y minutos mediante operaciones matemáticas
+    - Formateo consistente a "HH:MM:SS"
 
-_Completitud de Series Temporales_
+*Completitud de Series Temporales*
 
 - **Rellenado inteligente**: Propagación de valores horarios hacia adelante
 - **Consistencia temporal**: Garantía de continuidad en las mediciones
 
 **Estandarización de Categorías y Comentarios**
 
-_Unificación de Términos de Congestión_
+*Unificación de Términos de Congestión*
 
 Agrupamiento por patrones:
 
@@ -809,7 +993,7 @@ Agrupamiento por patrones:
 - *Incorporación a colas*: Variantes de "llega a cola" unificadas
 - *Agrupamiento vehicular*: Múltiples expresiones de "llegan juntos" estandarizadas
 
-_Clasificación Vehicular_
+*Clasificación Vehicular*
 
 - *Transporte público*: ["micro", "Micro"] → "Micro"
 - *Motocicletas*: ["moto", "Moto"] → "Moto"
@@ -823,7 +1007,7 @@ _Clasificación Vehicular_
 
 ## tb_gps_historial_eventos_202509161626(1).csv
 
-```{r getData6, include=FALSE}
+```{r getData6, eval=FALSE, include=FALSE}
 # tb_gps_historial_eventos_202509161626(1).csv
 gps.events <- read_file("data/tb_gps_historial_eventos_202509161626(1).csv") %>% str_replace_all(., "\";\"", " ") %>% str_replace_all(., ",", ";") %>% str_replace_all(., "\"", "") %>% read.table(text = ., sep = ";", header = T, stringsAsFactors = F)
 gps.events <- gps.events %>% select(-c(ubicacion_, velocidad_))
@@ -870,9 +1054,9 @@ El dataset contiene 1000 eventos registrados por sistemas GPS vehiculares, captu
 
 - `id_evento`: Valor constante `2` en todos los registros
 - `direccion_`:
-  - Sistema de representación angular (grados) o coordenadas relativas
-  - Significado de valores negativos vs. positivos
-  - Relación con puntos cardinales o sistema de referencia
+    - Sistema de representación angular (grados) o coordenadas relativas
+    - Significado de valores negativos vs. positivos
+    - Relación con puntos cardinales o sistema de referencia
 
 ### Procesamiento y Normalización de Datos
 
@@ -880,23 +1064,23 @@ El dataset contiene 1000 eventos registrados por sistemas GPS vehiculares, captu
 
 - **Problema original**: Formato CSV con delimitadores inconsistentes y caracteres de escape
 - **Transformación aplicada**:
-  - Reemplazo de ";" por espacio para unificación
-  - Sustitución de , por ; como nuevo delimitador
-  - Eliminación de comillas redundantes
+    - Reemplazo de ";" por espacio para unificación
+    - Sustitución de , por ; como nuevo delimitador
+    - Eliminación de comillas redundantes
 - **Resultado**: Estructura tabular legible para importación
 
 **Optimización de Estructura de Datos**
 
 - **Eliminación de columnas vacías**: `ubicacion_` y `velocidad_` removidas por contener exclusivamente valores nulos
 - **Normalización temporal**:
-  - `fecha_auto` y `fecha_gps_` convertidas a formato datetime
-  - Preservación de precisiones de segundos
+    - `fecha_auto` y `fecha_gps_` convertidas a formato datetime
+    - Preservación de precisiones de segundos
 - **Tipificación categórica**:
-  - `evento_` y `direccion_` convertidas a factor para análisis estadístico
+    - `evento_` y `direccion_` convertidas a factor para análisis estadístico
 
 ## Inventario CCTV Biobío(1).xlsx
 
-```{r getData8, include=FALSE}
+```{r getData8, eval=FALSE, include=FALSE}
 # Inventario CCTV Biobío(1).xlsx
 biobio.inventary <- read_excel("data/Inventario CCTV Biobío(1).xlsx", 
     range = "A2:Q73", na = "----")
@@ -922,9 +1106,9 @@ El inventario documenta 71 ubicaciones de cámaras de vigilancia y sus respectiv
 ### Distribución Geográfica
 
 - **Comunas con mayor cobertura**:
-  - **Concepción**: 31 cámaras
-  - **San Pedro de la Paz**: 16 cámaras
-  - **Los Ángeles**: 10 cámaras
+    - **Concepción**: 31 cámaras
+    - **San Pedro de la Paz**: 16 cámaras
+    - **Los Ángeles**: 10 cámaras
 - **Cobertura regional**: Múltiples comunas del Biobío con sistemas CCTV
 
 ### Estado Operacional del Sistema
@@ -942,13 +1126,13 @@ El inventario documenta 71 ubicaciones de cámaras de vigilancia y sus respectiv
 
 **Especificaciones de Cámaras**
 
-_Marcas predominantes_:
+*Marcas predominantes*:
 
 - Pelco: 38 cámaras
 - Avigilon: 10 cámaras
 - Axis: 10 cámaras
 
-_Modelos más frecuentes_:
+*Modelos más frecuentes*:
 
 - Pelco Esprit: 27 unidades
 - Avigilon 2.0C-H5A-RGDPTZ-DP36: 10 unidades
@@ -956,7 +1140,7 @@ _Modelos más frecuentes_:
 
 **Sistema de Codificación de Video**
 
-_Codificadores identificados_:
+*Codificadores identificados*:
 
 - Axis AXIS Q7401: 26 unidades
 - Sin especificar: 45 unidades - posiblemente integrados en cámaras o no documentados
@@ -973,26 +1157,26 @@ _Codificadores identificados_:
 
 - **Problema original**: Columnas duplicadas "MARCA", "MODELO" y "NÚMERO DE SERIE" para cámara y codificador
 - **Solución aplicada**:
-  - Diferenciación clara mediante sufijos "DE LA CÁMARA" y "DEL CODIFICADOR DE VIDEO"
-  - Asignación basada en posición original en el dataset (columnas 1-11: cámara, 12-17: codificador)
+    - Diferenciación clara mediante sufijos "DE LA CÁMARA" y "DEL CODIFICADOR DE VIDEO"
+    - Asignación basada en posición original en el dataset (columnas 1-11: cámara, 12-17: codificador)
 
 **Optimización para Análisis**:
 
 - **Normalización categórica**: Conversión de 9 variables clave a tipo factor:
-  - COMUNA
-  - ESTADO
-  - TIPO DE ENLACE
-  - PROVEEDOR
-  - MARCA DE LA CÁMARA
-  - MODELO DE LA CÁMARA
-  - MARCA DEL CODIFICADOR
-  - MODELO DEL CODIFICADOR
-  - REGIÓN
+    - COMUNA
+    - ESTADO
+    - TIPO DE ENLACE
+    - PROVEEDOR
+    - MARCA DE LA CÁMARA
+    - MODELO DE LA CÁMARA
+    - MARCA DEL CODIFICADOR
+    - MODELO DEL CODIFICADOR
+    - REGIÓN
 - **Manejo de valores faltantes**: Identificación explícita de valores "----" como NA
 
 ## Alertas de Tráfico.csv
 
-```{r getData7, include=FALSE}
+```{r getData7, eval=FALSE, include=FALSE}
 # Alertas de Tráfico.csv
 trafic.alerts <- read_csv("data/Alertas de Tráfico.csv")
 trafic.alerts <- trafic.alerts %>% mutate(
@@ -1017,15 +1201,15 @@ El dataset comprende 281759 alertas de tráfico generadas por usuarios de Waze, 
 
 - **Cobertura temporal**: 23 de junio de 2023 - 15 de mayo de 2024
 - **Duración**: Aproximadamente 11 meses de datos continuos
-- **Registros diarios promedio**: ~850 alertas por día
+- **Registros diarios promedio**: \~850 alertas por día
 
 ### Contexto Geográfico
 
 - **Distribución por ciudad**:
-  - Concepción: 130747 alertas
-  - San Pedro de la Paz: 51816 alertas
-  - Talcahuano: 35122 alertas
-  - Otras comunas: 64074 alertas
+    - Concepción: 130747 alertas
+    - San Pedro de la Paz: 51816 alertas
+    - Talcahuano: 35122 alertas
+    - Otras comunas: 64074 alertas
 
 ### Clasificación de Alertas
 
@@ -1038,20 +1222,20 @@ El dataset comprende 281759 alertas de tráfico generadas por usuarios de Waze, 
 
 **Especificaciones por Subcategoría (Subtype)**
 
-_Embottellamientos (JAM)_:
+*Embottellamientos (JAM)*:
 
 - Tráfico intenso (JAM_HEAVY_TRAFFIC): 77179 casos
 - Tráfico paralizado (JAM_STAND_STILL_TRAFFIC): 52298 casos
 - Tráfico moderado (JAM_MODERATE_TRAFFIC): 20947 casos
 
-_Peligros (HAZARD)_:
+*Peligros (HAZARD)*:
 
 - Vehículo detenido en franja lateral (HAZARD_ON_SHOULDER_CAR_STOPPED): 15869 casos
 - Construcción en la vía (HAZARD_ON_ROAD_CONSTRUCTION): 9458 casos
 - Peligro en la vía (HAZARD_ON_ROAD): 7494 casos
 - Otros peligros: 20636 casos
 
-_Peligros meteorológicos (WEATHERHAZARD)_:
+*Peligros meteorológicos (WEATHERHAZARD)*:
 
 - Vehículo detenido (HAZARD_ON_ROAD_CAR_STOPPED): 9467 casos
 - Construcción en la vía (HAZARD_ON_ROAD_CONSTRUCTION): 6287 casos
@@ -1064,30 +1248,30 @@ _Peligros meteorológicos (WEATHERHAZARD)_:
 
 - **Problema original**: Campo "Location" en formato WKT (Well-Known Text): `Point(lng lat)`
 - **Solución aplicada**:
-  - Extracción de longitud (`lng`) mediante regex: `(?<=Point\\()-?\\d+\\.?\\d*`
-  - Extracción de latitud (`lat`) mediante regex: `-?\\d+\\.?\\d*(?=\\)$)`
-  - Conversión a tipos numéricos para análisis espacial
+    - Extracción de longitud (`lng`) mediante regex: `(?<=Point\\()-?\\d+\\.?\\d*`
+    - Extracción de latitud (`lat`) mediante regex: `-?\\d+\\.?\\d*(?=\\)$)`
+    - Conversión a tipos numéricos para análisis espacial
 
 **Normalización de Fechas**
 
 - **Formato original**: Día-Mes-Año con abreviaturas en español
 - **Conversión aplicada**:
-  - Mapeo de abreviaturas españolas a inglesas: `{"ene":"jan", "feb":"feb", ..., "dic":"dec"}`
-  - Transformación a formato Date usando `dmy()`
+    - Mapeo de abreviaturas españolas a inglesas: `{"ene":"jan", "feb":"feb", ..., "dic":"dec"}`
+    - Transformación a formato Date usando `dmy()`
 
 **Optimización para Análisis**
 
 - **Tipificación categórica**: Conversión a factor de 4 variables clave:
-  - Country
-  - City
-  - Type
-  - Subtype
+    - Country
+    - City
+    - Type
+    - Subtype
 - Eliminación de redundancias: Remoción de columna "Location" original
 - Estructura final: Dataset con 281759 registros × 8 columnas optimizadas
 
 ## Copia de Accidentes.csv
 
-```{r getData9, include=FALSE}
+```{r getData9, eval=FALSE, include=FALSE}
 # Copia de Accidentes.csv
 accidents <- read_csv("data/Copia de Accidentes.csv")
 accidents <- accidents %>% mutate(
@@ -1110,15 +1294,15 @@ El dataset contiene 281981 registros de accidentes de tránsito, proporcionando 
 
 - **Cobertura temporal**: 23 de junio de 2023 - 15 de mayo de 2024
 - **Duración**: 327 días de reportes continuos
-- **Densidad de datos**: ~862 accidentes reportados por día en promedio
+- **Densidad de datos**: \~862 accidentes reportados por día en promedio
 
 ### Contexto Geográfico
 
 - **Distribución por ciudad**:
-  - Concepción: 130516 alertas
-  - San Pedro de la Paz: 51704 alertas
-  - Talcahuano: 35059 alertas
-  - Otras comunas: 64702 alertas
+    - Concepción: 130516 alertas
+    - San Pedro de la Paz: 51704 alertas
+    - Talcahuano: 35059 alertas
+    - Otras comunas: 64702 alertas
 
 ### Métricas de Confiabilidad
 
@@ -1133,29 +1317,29 @@ El dataset contiene 281981 registros de accidentes de tránsito, proporcionando 
 
 - **Formato original**: Campo "Location" en estándar WKT (Well-Known Text)
 - **Metodología de extracción**:
-  - Longitud (`lng`): Patrón regex `(?<=Point\\()-?\\d+\\.?\\d*`
-  - Latitud (`lat`): Patrón regex `-?\\d+\\.?\\d*(?=\\)$)`
+    - Longitud (`lng`): Patrón regex `(?<=Point\\()-?\\d+\\.?\\d*`
+    - Latitud (`lat`): Patrón regex `-?\\d+\\.?\\d*(?=\\)$)`
 - **Resultado**: Coordenadas decimales para análisis geoespacial avanzado
 
 **Estandarización de Fechas**
 
 - **Problema identificado**: Nomenclatura de meses en español
 - **Solución implementada**:
-  - Mapeo sistemático: `{"ene":"jan", "feb":"feb", ..., "dic":"dec"}`
-  - Conversión robusta mediante función `dmy()`
+    - Mapeo sistemático: `{"ene":"jan", "feb":"feb", ..., "dic":"dec"}`
+    - Conversión robusta mediante función `dmy()`
 - **Output**: Timeline consistente para análisis temporal
 
 **Optimización de Estructura de Datos**
 
 - **Eliminación de redundancias**: Remoción de columna "Location" original
 - **Normalización categórica**:
-  - `Country` y `City` convertidas a tipo factor
-  - Habilitación de análisis agregados por ubicación
+    - `Country` y `City` convertidas a tipo factor
+    - Habilitación de análisis agregados por ubicación
 - **Dataset final**: 281981 registros × 7 columnas optimizadas
 
 ## Waze for Cities Data Key Alerts Dashboard_Traffic Irregularities_Tabla(1).csv
 
-```{r getData10, include=FALSE}
+```{r getData10, eval=FALSE, include=FALSE}
 # Waze for Cities Data Key Alerts Dashboard_Traffic Irregularities_Tabla(1).csv
 waze.data <- read_csv("data/Waze for Cities Data Key Alerts Dashboard_Traffic Irregularities_Tabla(1).csv", 
     na = "null")
@@ -1176,15 +1360,15 @@ El dataset contiene 13502 registros de irregularidades de tráfico documentadas 
 
 - **Cobertura temporal**: 23 de junio de 2023 - 15 de mayo de 2024
 - **Duración**: 327 días de monitoreo continuo
-- **Frecuencia promedio**: ~41 irregularidades reportadas por día
+- **Frecuencia promedio**: \~41 irregularidades reportadas por día
 
 ### Distribución Geográfica
 
 - **Concentración por ciudad**:
-  - Concepción: 4236 registros
-  - Los Ángeles: 3484 registros
-  - San Pedro de la Paz: 2190 registros
-  - Otras localidades: 3592 registros
+    - Concepción: 4236 registros
+    - Los Ángeles: 3484 registros
+    - San Pedro de la Paz: 2190 registros
+    - Otras localidades: 3592 registros
 
 ### Clasificación por Causas Identificadas
 
@@ -1222,17 +1406,170 @@ El dataset contiene 13502 registros de irregularidades de tráfico documentadas 
 
 - **Formato original**: Fechas con nomenclatura de meses en español
 - **Transformación aplicada**:
-  - Mapeo sistemático: `{"ene":"jan", "feb":"feb", ..., "dic":"dec"}`
-  - Conversión a formato Date mediante `dmy()`
+    - Mapeo sistemático: `{"ene":"jan", "feb":"feb", ..., "dic":"dec"}`
+    - Conversión a formato Date mediante `dmy()`
 - **Resultado**: Timeline consistente para análisis diario y estacional
 
 **Optimización de Estructura de Datos**
 
 - **Manejo de valores nulos**: Identificación explícita de "null" como NA
 - **Normalización categórica**:
-  - `Country`, `City`, `Street`, `Cause` convertidas a tipo factor
-  - Habilitación de análisis agregados por múltiples dimensiones
+    - `Country`, `City`, `Street`, `Cause` convertidas a tipo factor
+    - Habilitación de análisis agregados por múltiples dimensiones
 - **Dataset final**: 13502 registros × 8 columnas optimizadas
+
+# Discretizar datos
+
+```{r quantum.data, eval=FALSE, include=FALSE}
+meters.per.degree.lat <- 111320
+meters.per.degree.lng <- function(lat.d) {
+  meters.per.degree.lat * cos(lat.d * pi / 180)
+}
+quantum.data <- function(
+  time.data = c(),
+  lng.data = c(),
+  lat.data = c(),
+  field.data = c(),
+  time.gap = 5,
+  space.gap = 50,
+  compile.function = mean
+) {
+  data.df <- data.frame(
+    time = time.data,
+    lng = lng.data,
+    lat = lat.data,
+    field = field.data,
+    stringsAsFactors = F
+  )
+  data.df <- data.df[data.df$time %>% order(),]
+  if (time.gap > 0) {
+    min.time <- data.df$time %>% min()
+    max.time <- data.df$time %>% max()
+    time.bins <- seq(from = min.time, to = max.time, by = time.gap)
+    data.df$time.bin <- data.df$time %>% cut(breaks = time.bins, include.lowest = T, labels = F)
+    data.df$time.bin[data.df$time.bin %>% is.na()] <- data.df$time.bin %>% max(na.rm = T) + 1
+  } else {
+    data.df$time.bin <- 1:(data.df %>% nrow())
+  }
+  if(space.gap > 0) {
+    lat.range.meters <- (lat.data %>% range()) * meters.per.degree.lat
+    lng.range.meters <- (lng.data * (lat.data %>% meters.per.degree.lng)) %>% range()
+    lat.bins.meters <- seq(from = lat.range.meters[1], to = lat.range.meters[2], by = space.gap)
+    lng.bins.meters <- seq(from = lng.range.meters[1], to = lng.range.meters[2], by = space.gap)
+    lat.bins <- lat.bins.meters / meters.per.degree.lat
+    lng.bins <- lng.range.meters / (lat.bins %>% meters.per.degree.lng)
+    data.df$lat.group <- data.df$lat %>% cut(breaks = lat.bins, include.lowest = T)
+    data.df$lng.group <- data.df$lng %>% cut(breaks = lng.bins, include.lowest = T)
+    data.df$lat.group[data.df$lat.group %>% is.na()] <- data.df$lat.group %>% max(na.rm = T) + 1
+    data.df$lng.group[data.df$lng.group %>% is.na()] <- data.df$lng.group %>% max(na.rm = T) + 1
+  } else {
+    data.df$lat.group <- 1:(data.df %>% nrow)
+    data.df$lng.group <- 1:(data.df %>% nrow)
+  }
+  result <- data.df %>% 
+    group_by(time.bin, lat.group, lng.group) %>% 
+    summarise(
+      time = time %>% range() %>% mean(na.rm = T),
+      lng = lng %>% range() %>% mean(na.rm = T),
+      lat = lat %>% range() %>% mean(na.rm = T),
+      field = field %>% compile.function(na.rm = T),
+      n.points = n(),
+      .groups = 'drop'
+    )
+  final.result <- data.frame(
+    time = result$time,
+    lng = result$lng,
+    lat = result$lat,
+    field = result$field,
+    n.points = result$n.points
+  )
+  final.result <- final.result[final.result$time %>% order(),]
+  return(final.result)
+}
+```
+
+## Descripción Matemática
+
+Sea la función:
+
+$$quantum.data: \mathbb{R}^{4\times n}\times\mathbb{R}^2\times(\mathcal{P}(\mathbb{R})\to\mathbb{R})\to\mathbb{R}^{5\times m}$$
+
+Donde:
+
+- **Dominio**: Matrices de datos $4\times n$ + parámetros de discretización + función de compilación
+- **Codominio**: Matrices de datos discretizados $5 \times m$ con $m \leq n$
+
+## Parámetros de Entrada
+
+- $\text{time.data} \in \mathbb{R}^n$: Vector temporal (segundos)
+- $\text{lng.data} \in \mathbb{R}^n$: Vector de longitudes (grados)
+- $\text{lat.data} \in \mathbb{R}^n$: Vector de latitudes (grados)
+- $\text{field.data} \in \mathbb{R}^n$: Vector de valores del campo de interés
+- $\text{time.gap} \in \mathbb{R}^+$: Intervalo temporal de discretización (segundos)
+- $\text{space.gap} \in \mathbb{R}^+$: Intervalo espacial de discretización (metros)
+- $\text{compile.function}: \mathcal{P}(\mathbb{R}) \to \mathbb{R}$: Función de agregación (ej: media, máximo, mínimo)
+
+## Proceso de Discretización
+
+### 1. Conversión de Unidades Espaciales
+
+Definimos las constantes de conversión:
+
+$$meters.per.degree.lat\equiv 111320$$
+
+$$meters.per.degree.lng(x)\equiv 111320 \times \cos\left(x \times \frac{\pi}{180}\right)$$
+
+### 2. Discretización Temporal
+
+Para $\text{time.gap} > 0$:
+
+- Sea $t_{\min} = \min(\text{time.data})$, $t_{\max} = \max(\text{time.data})$
+- Construimos los intervalos: $B_t = {t_{\min}, t_{\min} + \Delta t, t_{\min} + 2\Delta t, \dots, t_{\max}}$ donde $\Delta t = \text{time.gap}$
+- Asignamos cada $t_i$ al bin temporal $b_t(i) = k$ tal que $t_i \in [B_t[k], B_t[k+1])$
+
+### 3. Discretización Espacial
+
+Para $\text{space.gap} > 0$:
+
+- Convertimos rangos a metros:
+  - $R_{lat}^m = [\min(\text{lat.data}), \max(\text{lat.data})] \times 111320$
+  - $R_{lng}^m = [\min(\text{lng.data} \times f_{lng}), \max(\text{lng.data} \times f_{lng})]$ donde $f_{lng} = \text{meters.per.degree.lng}(\text{lat.media})$
+- Construimos bins en metros:
+  - $B_{lat}^m = {R_{lat}^m[1], R_{lat}^m[1] + \Delta s, \dots, R_{lat}^m[2]}$
+  - $B_{lng}^m = {R_{lng}^m[1], R_{lng}^m[1] + \Delta s, \dots, R_{lng}^m[2]}$ donde $\Delta s = \text{space.gap}$
+- Convertimos bins a grados:
+  - $B_{lat} = B_{lat}^m / 111320$
+  - $B_{lng} = B_{lng}^m / f_{lng}$
+
+### 4. Agregación por Celdas
+
+Para cada celda espacio-temporal $(b_t, b_{lat}, b_{lng})$:
+
+- $\text{time}{celda} = \text{mean}{t_i : t_i \in b_t, lat_i \in b{lat}, lng_i \in b_{lng}}$
+- $\text{lng}{celda} = \text{mean}{lng_i : t_i \in b_t, lat_i \in b{lat}, lng_i \in b_{lng}}$
+- $\text{lat}{celda} = \text{mean}{lat_i : t_i \in b_t, lat_i \in b{lat}, lng_i \in b_{lng}}$
+- $\text{field}{celda} = \text{compile.function}{field_i : t_i \in b_t, lat_i \in b{lat}, lng_i \in b_{lng}}$
+- $\text{n.points}{celda} = |{i : t_i \in b_t, lat_i \in b{lat}, lng_i \in b_{lng}}|$
+
+## Salida
+
+La función retorna una matriz $\mathbb{R}^{5 \times m}$ con columnas:
+
+1. $\text{time}$: Tiempo representativo de la celda
+2. $\text{lng}$: Longitud representativa de la celda
+3. $\text{lat}$: Latitud representativa de la celda
+4. $\text{field}$: Valor del campo agregado
+5. $\text{n.points}$: Número de puntos originales en la celda
+
+## Propiedades Matemáticas
+
+- **Reducción dimensional**: $m \leq n$ (generalmente $m \ll n$)
+- **Conservación de información**: Los valores agregados representan estadísticos de los datos originales
+- **Adaptabilidad espacial**: La discretización longitudinal considera la variación métrica con la latitud
+- **Robustez**: Manejo de valores en los límites mediante asignación a bins adicionales
+
+Esta función implementa esencialmente un **proceso de cuantización vectorial** en el espacio $\mathbb{R}^3$ (tiempo × latitud × longitud) con métricas adaptativas.
+
 
 # Visualizar datos
 
@@ -1591,7 +1928,6 @@ ggplot() +
   coord_sf(crs = 4326)
 ```
 
-
 ## Inventario de de cámaras de vigilancia
 
 ### Distribución por columna
@@ -1618,7 +1954,6 @@ ggplot(biobio.inventary.online) +
   fill = `MARCA DE LA CÁMARA`)) +
   labs(y = "MODELO DE LA CÁMARA")
 ```
-
 
 ### Marca de la cámara por localización
 
@@ -1713,7 +2048,7 @@ ggplot(trafic.alerts[trafic.alerts$Subtype %in% top,]) +
 
 **Concepción, San Pedro de la Paz, Talcahuano, Hualpén, Penco y Hualqui**
 
-_JAM_
+*JAM*
 
 ```{r trafic.alerts2, echo=FALSE, warning=FALSE}
 ggplot() +
@@ -1729,7 +2064,7 @@ ggplot() +
   guides(size = "none")
 ```
 
-_HAZARD_
+*HAZARD*
 
 ```{r trafic.alerts3, echo=FALSE, warning=FALSE}
 ggplot() +
@@ -1745,7 +2080,7 @@ ggplot() +
   guides(size = "none")
 ```
 
-_WEATHERHAZARD_
+*WEATHERHAZARD*
 
 ```{r trafic.alerts4, echo=FALSE, warning=FALSE}
 ggplot() +
@@ -1761,7 +2096,7 @@ ggplot() +
   guides(size = "none")
 ```
 
-_ACCIDENT_
+*ACCIDENT*
 
 ```{r trafic.alerts5, echo=FALSE, warning=FALSE}
 ggplot() +
@@ -1777,7 +2112,7 @@ ggplot() +
   guides(size = "none")
 ```
 
-_ROAD_CLOSED_
+*ROAD_CLOSED*
 
 ```{r trafic.alerts6, echo=FALSE, warning=FALSE}
 ggplot() +
@@ -1809,7 +2144,7 @@ ggplot() +
   guides(size = "none")
 ```
 
-_HAZARD_
+*HAZARD*
 
 ```{r trafic.alerts8, echo=FALSE, warning=FALSE}
 ggplot() +
@@ -1825,7 +2160,7 @@ ggplot() +
   guides(size = "none")
 ```
 
-_WEATHERHAZARD_
+*WEATHERHAZARD*
 
 ```{r trafic.alerts9, echo=FALSE, warning=FALSE}
 ggplot() +
@@ -1841,7 +2176,7 @@ ggplot() +
   guides(size = "none")
 ```
 
-_ACCIDENT_
+*ACCIDENT*
 
 ```{r trafic.alerts10, echo=FALSE, warning=FALSE}
 ggplot() +
@@ -1857,7 +2192,7 @@ ggplot() +
   guides(size = "none")
 ```
 
-_ROAD_CLOSED_
+*ROAD_CLOSED*
 
 ```{r trafic.alerts11, echo=FALSE, warning=FALSE}
 ggplot() +
@@ -1875,7 +2210,7 @@ ggplot() +
 
 **Chiguayante**
 
-_JAM_
+*JAM*
 
 ```{r trafic.alerts12, echo=FALSE, warning=FALSE}
 ggplot() +
@@ -1891,7 +2226,7 @@ ggplot() +
   guides(size = "none")
 ```
 
-_HAZARD_
+*HAZARD*
 
 ```{r trafic.alerts13, echo=FALSE, warning=FALSE}
 ggplot() +
@@ -1907,7 +2242,7 @@ ggplot() +
   guides(size = "none")
 ```
 
-_WEATHERHAZARD_
+*WEATHERHAZARD*
 
 ```{r trafic.alerts14, echo=FALSE, warning=FALSE}
 ggplot() +
@@ -1923,7 +2258,7 @@ ggplot() +
   guides(size = "none")
 ```
 
-_ACCIDENT_
+*ACCIDENT*
 
 ```{r trafic.alerts15, echo=FALSE, warning=FALSE}
 ggplot() +
@@ -1939,7 +2274,7 @@ ggplot() +
   guides(size = "none")
 ```
 
-_ROAD_CLOSED_
+*ROAD_CLOSED*
 
 ```{r trafic.alerts16, echo=FALSE, warning=FALSE}
 ggplot() +
@@ -1957,7 +2292,7 @@ ggplot() +
 
 **Tomé**
 
-_JAM_
+*JAM*
 
 ```{r trafic.alerts17, echo=FALSE, warning=FALSE}
 ggplot() +
@@ -1973,7 +2308,7 @@ ggplot() +
   guides(size = "none")
 ```
 
-_HAZARD_
+*HAZARD*
 
 ```{r trafic.alerts18, echo=FALSE, warning=FALSE}
 ggplot() +
@@ -1989,7 +2324,7 @@ ggplot() +
   guides(size = "none")
 ```
 
-_WEATHERHAZARD_
+*WEATHERHAZARD*
 
 ```{r trafic.alerts19, echo=FALSE, warning=FALSE}
 ggplot() +
@@ -2005,7 +2340,7 @@ ggplot() +
   guides(size = "none")
 ```
 
-_ACCIDENT_
+*ACCIDENT*
 
 ```{r trafic.alerts20, echo=FALSE, warning=FALSE}
 ggplot() +
@@ -2021,7 +2356,7 @@ ggplot() +
   guides(size = "none")
 ```
 
-_ROAD_CLOSED_
+*ROAD_CLOSED*
 
 ```{r trafic.alerts21, echo=FALSE, warning=FALSE}
 ggplot() +
@@ -2200,4 +2535,3 @@ ggplot(waze.data) +
   geom_density(aes(x = `Impacted Wazers`, colour = Cause)) +
   scale_x_log10()
 ```
-
