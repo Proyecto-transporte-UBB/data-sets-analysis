@@ -10,7 +10,12 @@ output:
 ---
 
 ```{r setup, include=FALSE}
+if (Sys.getenv("JAVA_HOME")=="") {
+  Sys.setenv(JAVA_HOME="C:/Program Files/Java/jre1.8.0_361")
+}
 knitr::opts_chunk$set(echo = TRUE)
+options(future.globals.maxSize = 8000 * 1024^2)
+options(java.parameters = "-Xmx2048m")
 library(cowplot)
 library(dplyr)
 library(ggmap)
@@ -39,20 +44,59 @@ library(tidyxl)
 library(viridis)
 ```
 
-```{r pre.load, eval=FALSE, include=FALSE}
-key.objects <- c("interurban.bus.accidents", "gh026929", "tracking.gps.df", "police.accidents", "radio.accidents.df", "chiguayante.speed.df", "vega.speed.df", "gps.events", "biobio.inventary", "trafic.alerts", "accidents", "waze.data", "meters.per.degree.lat", "meters.per.degree.lng", "quantum.data")
+```{r key.objects, include=FALSE}
+key.objects <- c("interurban.bus.accidents", "gh026929", "police.accidents", "radio.accidents.df", "chiguayante.speed.df", "vega.speed.df", "gps.events", "biobio.inventary", "trafic.alerts", "accidents", "waze.data", "meters.per.degree.lat", "meters.per.degree.lng", "quantum.data", "tracking.gps.df")
+```
+
+```{r save, eval=FALSE, include=FALSE}
 deleting.objects <- setdiff(ls(), key.objects)
 rm(list = deleting.objects)
 gc()
 memory.limit()
 memory.size()
 save.image("~/GitHub/data-sets-analysis/.RData")
+save.time.sys <- ls()
+for(ko in key.objects) {
+  start.sys <- Sys.time()
+  file.name <- paste(ko, "rds", sep = ".")
+  file.path. <- paste("~/GitHub/data-sets-analysis/rds-files", file.name, sep = "/")
+  ko %>% get() %>% saveRDS(file = file.path.)
+  end.sys <- Sys.time()
+  dt.sys <- end.sys - start.sys
+  print(ko)
+  print(dt.sys)
+  save.time.sys[[ko]] <- dt.sys
+}
 ```
 
 
 ```{r load, include=FALSE}
-options(future.globals.maxSize = 4000 * 1024^2)
-load("~/GitHub/data-sets-analysis/.RData", verbose = T)
+load.time.sys <- ls()
+for(ko in key.objects[key.objects != "tracking.gps.df"]) {
+  start.sys <- Sys.time()
+  file.name <- paste(ko, "rds", sep = ".")
+  file.path. <- paste("~/GitHub/data-sets-analysis/rds-files", file.name, sep = "/")
+  assign(ko, ko %>% readRDS(file = file.path.))
+  end.sys <- Sys.time()
+  dt.sys <- end.sys - start.sys
+  print(ko)
+  print(dt.sys)
+  load.time.sys[[ko]] <- dt.sys
+}
+```
+
+```{r load.tracking.gps.df, include=FALSE}
+options(future.globals.maxSize = 64000 * 1024^2)
+ko <- "tracking.gps.df"
+start.sys <- Sys.time()
+file.name <- paste(ko, "rds", sep = ".")
+file.path. <- paste("~/GitHub/data-sets-analysis/rds-files", file.name, sep = "/")
+assign(ko, ko %>% readRDS(file = file.path.))
+end.sys <- Sys.time()
+dt.sys <- end.sys - start.sys
+print(ko)
+print(dt.sys)
+load.time.sys[[ko]] <- dt.sys
 ```
 
 # Extraer datos
@@ -1921,11 +1965,13 @@ ggplot() +
 
 ```{r gps.events1, echo=FALSE, warning=FALSE}
 gps.events.argentina <- gps.events[gps.events$longitud_ > -71,]
+start.sys <- Sys.time()
 ggplot() +
-  annotation_map_tile(type = "osm", zoom = 15) +
+  annotation_map_tile(type = "osm", zoom = 10) +
   geom_point(data = gps.events.argentina, aes(x = longitud_, y = latitud_, colour = evento_, size = direccion_)) +
   labs(x = "Longitud", y = "Latitud") +
   coord_sf(crs = 4326)
+end.sys <- Sys.time()
 ```
 
 ## Inventario de de cámaras de vigilancia
