@@ -2194,7 +2194,7 @@ ggplot() +
 
 ```{r trafic.alerts8, echo=FALSE, warning=FALSE}
 ggplot() +
-  annotation_map_tile(type = "osm", zoom = 15) +
+  annotation_map_tile(type = "osm", zoom = 10) +
   stat_density_2d(
     data = trafic.alerts[trafic.alerts$City == "Los Ángeles" & trafic.alerts$Type == "HAZARD",],
     aes(x = lng, y = lat, fill = after_stat(level)),
