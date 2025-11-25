@@ -614,7 +614,7 @@ for(sheet in date.sheets) {
   day <- day.month[1] %>% as.numeric()
   month <- day.month[2] %>% as.numeric()
   ## ¿De qué año es?
-  comp.date <- paste("2025", month, day, sep = "-") %>% as.Date()
+  comp.date <- paste("2024", month, day, sep = "-") %>% as.Date()
   df$fecha <- comp.date
   df$`#ID` <- df$`#ID` %>% as.numeric()
   df$Hora <- df$Hora %>% as.numeric() %>% as.POSIXct() %>% format(format = "%H:%M")
