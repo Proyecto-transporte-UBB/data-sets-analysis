@@ -382,9 +382,9 @@ _Clasificación de Calidad de Señal_
 _Escala DOP (Dilution of Precision)_:
 
 - `Excelente`: $DOP < 1$
-- `Muy Buena`: $1 ≤ DOP < 2$
-- `Buena`: $2 ≤ DOP < 5$
-- `Regular`: $5 ≤ DOP ≤ 10$
+- `Muy Buena`: $1 <= DOP < 2$
+- `Buena`: $2 <= DOP < 5$
+- `Regular`: $5 <= DOP <= 10$
 - `Mala`: $DOP > 10$
 
 _Optimización de Tipos de Datos_
@@ -2176,9 +2176,11 @@ ggplot() +
 
 **Los Ángeles**
 
+*JAM*
+
 ```{r trafic.alerts7, echo=FALSE, warning=FALSE}
 ggplot() +
-  annotation_map_tile(type = "osm", zoom = 15) +
+  annotation_map_tile(type = "osm", zoom = 10) +
   stat_density_2d(
     data = trafic.alerts[trafic.alerts$City == "Los Ángeles" & trafic.alerts$Type == "JAM",],
     aes(x = lng, y = lat, fill = after_stat(level)),
@@ -2210,7 +2212,7 @@ ggplot() +
 
 ```{r trafic.alerts9, echo=FALSE, warning=FALSE}
 ggplot() +
-  annotation_map_tile(type = "osm", zoom = 15) +
+  annotation_map_tile(type = "osm", zoom = 10) +
   stat_density_2d(
     data = trafic.alerts[trafic.alerts$City == "Los Ángeles" & trafic.alerts$Type == "WEATHERHAZARD",],
     aes(x = lng, y = lat, fill = after_stat(level)),
@@ -2226,7 +2228,7 @@ ggplot() +
 
 ```{r trafic.alerts10, echo=FALSE, warning=FALSE}
 ggplot() +
-  annotation_map_tile(type = "osm", zoom = 15) +
+  annotation_map_tile(type = "osm", zoom = 10) +
   stat_density_2d(
     data = trafic.alerts[trafic.alerts$City == "Los Ángeles" & trafic.alerts$Type == "ACCIDENT",],
     aes(x = lng, y = lat, fill = after_stat(level)),
@@ -2242,7 +2244,7 @@ ggplot() +
 
 ```{r trafic.alerts11, echo=FALSE, warning=FALSE}
 ggplot() +
-  annotation_map_tile(type = "osm", zoom = 15) +
+  annotation_map_tile(type = "osm", zoom = 10) +
   stat_density_2d(
     data = trafic.alerts[trafic.alerts$City == "Los Ángeles" & trafic.alerts$Type == "ROAD_CLOSED",],
     aes(x = lng, y = lat, fill = after_stat(level)),
@@ -2455,7 +2457,7 @@ ggplot() +
 
 ```{r accidents2, echo=FALSE, warning=FALSE}
 ggplot() +
-  annotation_map_tile(type = "osm", zoom = 15) +
+  annotation_map_tile(type = "osm", zoom = 12) +
   stat_density_2d(
     data = accidents[accidents$City == "Los Ángeles",],
     aes(x = lng, y = lat, fill = after_stat(level)),
@@ -2471,7 +2473,7 @@ ggplot() +
 
 ```{r accidents3, echo=FALSE, warning=FALSE}
 ggplot() +
-  annotation_map_tile(type = "osm", zoom = 15) +
+  annotation_map_tile(type = "osm", zoom = 12) +
   stat_density_2d(
     data = accidents[accidents$City == "Chiguayante",],
     aes(x = lng, y = lat, fill = after_stat(level)),
@@ -2487,7 +2489,7 @@ ggplot() +
 
 ```{r accidents4, echo=FALSE, warning=FALSE}
 ggplot() +
-  annotation_map_tile(type = "osm", zoom = 15) +
+  annotation_map_tile(type = "osm", zoom = 12) +
   stat_density_2d(
     data = accidents[accidents$City == "Tomé",],
     aes(x = lng, y = lat, fill = after_stat(level)),
@@ -2503,7 +2505,7 @@ ggplot() +
 
 ```{r accidents5, echo=FALSE, warning=FALSE}
 ggplot() +
-  annotation_map_tile(type = "osm", zoom = 15) +
+  annotation_map_tile(type = "osm", zoom = 12) +
   stat_density_2d(
     data = accidents[accidents$City == "Huertos Familiares",],
     aes(x = lng, y = lat, fill = after_stat(level)),
