@@ -210,16 +210,14 @@ El dataset contiene 1726 registros de telemetría GPS capturados durante un per�
 
 ### Calidad de Señal GPS
 
-- **Valor fix**: Constante en 3 para todos los registros, sugiriendo un posicionamiento 3D consistente
-- **Precisión**: Oscila entre 121 y 158 unidades (media: 125.9, mediana: 125)
+- **Valor fix**: Constante en 3 para todos los registros, indicando que calculó su posición a partir de 3 satélites
+- **Precisión**: Oscila entre 121 y 158 m (media: 125.9 m, mediana: 125 m)
 
 ### Aspectos Requieren Clarificación
 
 **Variables por Definir**
 
 - `cts`: Propósito y unidades no especificadas
-- `fix`: Escala de calidad de posicionamiento GPS no documentada
-- **Unidades de precisión**: Métrica de exactitud no especificada
 - **Rango de alturas**: Valores de altitud GPS no reportados en el resumen
 
 **Problemas de Formato Identificados**
@@ -753,7 +751,7 @@ El dataset contiene 312 registros de incidentes de tráfico reportados a través
 - **"es incidente de tráfico? (si/no)"**:
     - *Valores estandarizados*: "SI" para ["si", "SI"], "NO" para ["no", "NO"]
 - *Direccionalidad ("dir")*:
-    - *Normalización de notaciones*: Unificación de variantes ("e-o" → "E-O", "n-s" → "N-S", etc.)
+    - *Normalización de notaciones*: Unificación de variantes ("e-o" -> "E-O", "n-s" -> "N-S", etc.)
     - *Patrones bidireccionales*: Estandarización de formatos compuestos
     - *Valores inválidos*: ["-", "n/a", "n/A"] convertidos a NA
 
@@ -761,13 +759,13 @@ El dataset contiene 312 registros de incidentes de tráfico reportados a través
 
 *Mapeo cromático de tipos de incidente*:
 
-- `FF00B0F0` → Intervenciones de Emergencia
-- `FF00FFFF`, `FFFFFF00`, `NA` → Congestión
-- `FFFF0000` → Accidente de tránsito
-- `FFFF00FF` → Obstrucciones en la vía
-- `FFFF6600` → Problema Infraestructura de control
-- `FFFFC000` → Condición de tráfico
-- `FF00B050` → Otros
+- `FF00B0F0` -> Intervenciones de Emergencia
+- `FF00FFFF`, `FFFFFF00`, `NA` -> Congestión
+- `FFFF0000` -> Accidente de tránsito
+- `FFFF00FF` -> Obstrucciones en la vía
+- `FFFF6600` -> Problema Infraestructura de control
+- `FFFFC000` -> Condición de tráfico
+- `FF00B050` -> Otros
 
 **Optimizaciones Geográficas y Temporales**
 
@@ -780,6 +778,7 @@ El dataset contiene 312 registros de incidentes de tráfico reportados a través
 
 ```{r getData4, eval=FALSE, include=FALSE}
 # Med velo CHIGUAYANTE.xlsx
+date <- "2024-06-25"
 file.path <- "data/Med velo CHIGUAYANTE.xlsx"
 directions <- file.path %>% excel_sheets()
 chiguayante.speed <- list()
@@ -793,7 +792,7 @@ chiguayante.speed.df <- chiguayante.speed %>% bind_rows()
 chiguayante.speed.df <- chiguayante.speed.df %>% select(-c(...5, ...6, ...7, ...8, ...9, ...10, ...11, ...12, ...13))
 chiguayante.speed.df <- chiguayante.speed.df[!(chiguayante.speed.df$`Velocidad [km/hr]` %>% is.na()),]
 chiguayante.speed.df <- chiguayante.speed.df %>% fill(Hora, .direction = "down")
-chiguayante.speed.df$Hora <- chiguayante.speed.df$Hora %>% as.POSIXct() %>% format(., "%H:%M:%S") %>% hms()
+chiguayante.speed.df$Hora <- paste(date, chiguayante.speed.df$Hora %>% as.POSIXct() %>% format(., "%H:%M:%S")) %>% as.POSIXct(format = "%Y-%m-%d %H:%M:%S")
 chiguayante.speed.df$Comentario[chiguayante.speed.df$Comentario %in% c(
   "auto, doblo a Lo Plaza",
   "Auto, doblo a Lo Plaza",
@@ -822,7 +821,7 @@ El dataset contiene 338 mediciones de velocidad vehicular capturadas en el parad
 
 - **Ubicación**: Paradero "Bdo O'Higgins - Arauco", Chiguayante
 - **Corredor vial**: Concepción - Hualqui
-- **Período de medición**: 09:06 a 17:58 horas (fecha no especificada)
+- **Período de medición**: 26 de junio de 2024 entre las 09:06 y las 17:58 horas
 - **Duración**: Aproximadamente 9 horas de monitoreo continuo
 
 ### Análisis de Velocidades
@@ -869,7 +868,7 @@ El dataset contiene 338 mediciones de velocidad vehicular capturadas en el parad
 
 **Estructuración Multi-hoja**
 
-- **Organización por dirección**: Cada hoja representa una dirección de flujo (Concepción→Hualqui / Hualqui→Concepción)
+- **Organización por dirección**: Cada hoja representa una dirección de flujo (Concepción->Hualqui / Hualqui->Concepción)
 - **Consolidación**: Unificación de todas las hojas en dataset único
 - **Metadatos direccionales**: Incorporación de columna "dirección" desde nombres de hojas
 
@@ -889,8 +888,8 @@ El dataset contiene 338 mediciones de velocidad vehicular capturadas en el parad
 
 Comentarios vehiculares:
 
-- *Maniobras*: Unificación de variantes ["auto, doblo a Lo Plaza", "Auto, doblo a Lo Plaza", "Auto, gira a Lo Plaza"] → "Auto, dobló a Lo Plaza"
-- *Tipos vehiculares*: Normalización de ["camion", "Camion"] → "Camión" y ["micro", "Micro"] → "Micro"
+- *Maniobras*: Unificación de variantes ["auto, doblo a Lo Plaza", "Auto, doblo a Lo Plaza", "Auto, gira a Lo Plaza"] -> "Auto, dobló a Lo Plaza"
+- *Tipos vehiculares*: Normalización de ["camion", "Camion"] -> "Camión" y ["micro", "Micro"] -> "Micro"
 
 *Clasificación Vehicular Sistematizada*
 
@@ -910,18 +909,20 @@ Variable "Vehículo":
 
 ```{r getData5, eval=FALSE, include=FALSE}
 #Med velo LA VEGA.xlsx
+date <- "2024-06-25"
 file.path <- "data/Med velo LA VEGA.xlsx"
 sheets <- excel_sheets(file.path)
 directions <- sheets[grepl("21", sheets) & grepl("mayo", sheets)]
 vega.speed <- list()
 for(sheet in directions) {
-  df <- file.path %>% openxlsx::read.xlsx(sheet = sheet, colNames = T, fillMergedCells = TRUE, detectDates = T, skipEmptyCols = F, skipEmptyRows = F)
+  df <- file.path %>% openxlsx::read.xlsx(sheet = sheet, colNames = T, fillMergedCells = T, detectDates = T, skipEmptyCols = F, skipEmptyRows = F)
   df <- df[, 2:5]
   df$Hora[!(df$Hora %>% is.na()) & df$Hora %>% as.numeric() > 1 & !((!(df$Hora %>% is.na()) & df$Hora %>% as.numeric() %>% is.numeric() & df$Hora %>% as.numeric() > 1) %>% is.na())] <- ((df$Hora[!(df$Hora %>% is.na()) & df$Hora %>% as.numeric() > 1 & !((!(df$Hora %>% is.na()) & df$Hora %>% as.numeric() %>% is.numeric() & df$Hora %>% as.numeric() > 1) %>% is.na())] %>% as.numeric() %>% round(digits = 2)) / 24) %>% as.character()
+  df <- df %>% fill(Hora, .direction = "down")
   hour <- ((df$Hora %>% as.numeric()) * 24) %>% floor()
   minute <- (((df$Hora %>% as.numeric()) * 24 - hour) * 60) %>% floor()
-  df$Hora <- sprintf("%02d:%02d:00", hour, minute) %>% hms()
-  df <- df %>% fill(Hora, .direction = "down")
+  df$Hora <- sprintf("%02d:%02d:00", hour, minute)
+  df$Hora <- paste(date, df$Hora) %>% as.POSIXct(format = "%Y-%m-%d %H:%M:%S")
   df$dirección <- sheet
   df$`Lugar.(dirección)` <- df$`Lugar.(dirección)`[!(df$`Lugar.(dirección)` %>% is.na())] %>% paste(collapse = ", ")
   vega.speed[[sheet]] <- df
@@ -964,9 +965,9 @@ El dataset contiene 432 mediciones de velocidad vehicular capturadas en el cruce
 
 - **Ubicación**: Esquina Briceños con Miraflores, La Vega
 - **Corredores viales**:
-    - 21 de Mayo → Briceños → Miraflores
-    - Av. Costanera → Miraflores → 21 de Mayo
-- **Período de medición**: 08:08 a 17:58 horas (fecha no especificada)
+    - 21 de Mayo -> Briceños -> Miraflores
+    - Av. Costanera -> Miraflores -> 21 de Mayo
+- **Período de medición**: 25 de junio de 2024 entre las 08:08 y las 17:58 horas
 - **Duración**: Aproximadamente 10 horas de monitoreo continuo
 
 ### Análisis de Velocidades
@@ -1033,14 +1034,14 @@ El dataset contiene 432 mediciones de velocidad vehicular capturadas en el cruce
 
 Agrupamiento por patrones:
 
-- *Formación de colas*: ["cola por funeral", "forman cola"] → "Forman cola"
+- *Formación de colas*: ["cola por funeral", "forman cola"] -> "Forman cola"
 - *Incorporación a colas*: Variantes de "llega a cola" unificadas
 - *Agrupamiento vehicular*: Múltiples expresiones de "llegan juntos" estandarizadas
 
 *Clasificación Vehicular*
 
-- *Transporte público*: ["micro", "Micro"] → "Micro"
-- *Motocicletas*: ["moto", "Moto"] → "Moto"
+- *Transporte público*: ["micro", "Micro"] -> "Micro"
+- *Motocicletas*: ["moto", "Moto"] -> "Moto"
 
 ### Optimizaciones Estructurales
 
