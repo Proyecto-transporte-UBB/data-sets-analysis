@@ -1775,7 +1775,7 @@ Hubo una gran cantidad de incidentes el día viernes 1ro de agosto a las 21 hora
 ### Distribución por tipo de incidente durante el 1ro de agosto entre las 20 y 22 horas
 
 ```{r radio.accidents.df3, echo=FALSE, warning=FALSE}
-peak.radio <- radio.accidents.df[radio.accidents.df$Hora >= "2025-08-01 20:00" & radio.accidents.df$Hora <= "2025-08-01 22:00",]
+peak.radio <- radio.accidents.df[radio.accidents.df$Hora >= "2024-08-01 20:00" & radio.accidents.df$Hora <= "2024-08-01 22:00",]
 ggplot(peak.radio) +
   geom_bar(aes(fill = dir, y = `Tipo de incidente` %>%
       fct_infreq() %>%
