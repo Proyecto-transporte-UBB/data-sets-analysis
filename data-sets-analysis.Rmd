@@ -87,7 +87,7 @@ for(ko in key.objects[key.objects != "tracking.gps.df"]) {
 ```
 
 ```{r load.tracking.gps.df, include=FALSE}
-options(future.globals.maxSize = 64000 * 1024^2)
+options(future.globals.maxSize = 2^6 * 1000 * 1024^2)
 ko <- "tracking.gps.df"
 start.sys <- Sys.time()
 file.name <- paste(ko, "rds", sep = ".")
@@ -1692,14 +1692,8 @@ leaflet(gh026929) %>%
     lat = ~`GPS (Lat.) [deg]`,
     color = ~pal(`GPS (2D speed) [m/s]`),
     radius = 6,
-    stroke = FALSE,
-    fillOpacity = 0.8,
-    popup = ~paste(
-      "Velocidad 2D:", round(`GPS (2D speed) [m/s]`, 2), "m/s<br>",
-      "Velocidad 3D:", round(`GPS (3D speed) [m/s]`, 2), "m/s<br>",
-      "Precisión:", precision, "m<br>",
-      "Fecha:", format(date, "%Y-%m-%d %H:%M")
-    )
+    stroke = F,
+    fillOpacity = 0.8
   ) %>%
   addLegend(
     "bottomright",
@@ -1829,7 +1823,38 @@ ggplot(peak.radio) +
 
 ### Distribución geográfica durante el 1ro de agosto entre las 20 y 22 horas
 
-```{r radio.accidents.df4, echo=FALSE, warning=FALSE}
+```{r radio.accidents.df4.html, echo=FALSE, warning=FALSE, eval=knitr::is_html_output()}
+pal <- colorFactor(
+  palette = c("#F0F", "#00F", "#0FF", "#0F0", "#FF0", "#F80", "#F00"),
+  domain = peak.radio$`Tipo de incidente`
+)
+leaflet(peak.radio) %>%
+  addTiles() %>%
+  addCircleMarkers(
+    lng = ~lng,
+    lat = ~lat,
+    color = ~pal(`Tipo de incidente`),
+    radius = 6,
+    stroke = F,
+    fillOpacity = 0.8
+  ) %>%
+  addLegend(
+    "bottomright",
+    pal = pal,
+    values = ~`Tipo de incidente`,
+    title = "Tipo de incidente",
+    opacity = 1
+  ) %>%
+  addScaleBar(position = "bottomleft") %>%
+  setView(
+    lng = mean(peak.radio$lng),
+    lat = mean(peak.radio$lat),
+    zoom = 15
+  )
+```
+
+
+```{r radio.accidents.df4, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
   annotation_map_tile(type = "osm", zoom = 10) +
   geom_point(data = peak.radio, aes(x = lng, y = lat, colour = `Tipo de incidente`)) +
@@ -1994,9 +2019,39 @@ ggplot(vega.speed.df.no.na.comment[vega.speed.df.no.na.comment$Comentario %in% t
 
 ### Eventos por localización
 
+```{r gps.events0.html, echo=FALSE, warning=FALSE, eval=knitr::is_html_output()}
+pal <- colorFactor(
+  palette = c("#00F", "#0F0", "#F00"),
+  domain = gps.events$evento_
+)
+leaflet(gps.events) %>%
+  addTiles() %>%
+  addCircleMarkers(
+    lng = ~longitud_,
+    lat = ~latitud_,
+    color = ~pal(evento_),
+    radius = 6,
+    stroke = F,
+    fillOpacity = 0.8
+  ) %>%
+  addLegend(
+    "bottomright",
+    pal = pal,
+    values = ~evento_,
+    title = "evento_",
+    opacity = 1
+  ) %>%
+  addScaleBar(position = "bottomleft") %>%
+  setView(
+    lng = mean(gps.events$longitud_),
+    lat = mean(gps.events$latitud_),
+    zoom = 6
+  )
+```
+
 **Chile**
 
-```{r gps.events0, echo=FALSE, warning=FALSE}
+```{r gps.events0, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 gps.events.chile <- gps.events[gps.events$longitud_ <= -71,]
 ggplot() +
   annotation_map_tile(type = "osm", zoom = 17) +
@@ -2007,7 +2062,7 @@ ggplot() +
 
 **Argentina**
 
-```{r gps.events1, echo=FALSE, warning=FALSE}
+```{r gps.events1, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 gps.events.argentina <- gps.events[gps.events$longitud_ > -71,]
 start.sys <- Sys.time()
 ggplot() +
@@ -2047,9 +2102,39 @@ ggplot(biobio.inventary.online) +
 
 ### Marca de la cámara por localización
 
+```{r biobio.inventary2.html, echo=FALSE, warning=FALSE, eval=knitr::is_html_output()}
+pal <- colorFactor(
+  palette = c("#F0F", "#00F", "#0FF", "#0F0", "#FF0", "#F00"),
+  domain = biobio.inventary.online$`MARCA DE LA CÁMARA`
+)
+leaflet(biobio.inventary.online) %>%
+  addTiles() %>%
+  addCircleMarkers(
+    lng = ~LONGITUD,
+    lat = ~LATITUD,
+    color = ~pal(`MARCA DE LA CÁMARA`),
+    radius = 6,
+    stroke = F,
+    fillOpacity = 0.8
+  ) %>%
+  addLegend(
+    "bottomright",
+    pal = pal,
+    values = ~`MARCA DE LA CÁMARA`,
+    title = "MARCA DE LA CÁMARA",
+    opacity = 1
+  ) %>%
+  addScaleBar(position = "bottomleft") %>%
+  setView(
+    lng = mean(biobio.inventary.online$LONGITUD),
+    lat = mean(biobio.inventary.online$LATITUD),
+    zoom = 10
+  )
+```
+
 **Concepción**
 
-```{r biobio.inventary2, echo=FALSE, warning=FALSE}
+```{r biobio.inventary2, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
   annotation_map_tile(type = "osm", zoom = 15) +
   geom_point(data = biobio.inventary.online[biobio.inventary.online$COMUNA == "Concepción" & biobio.inventary.online$LATITUD < -36.6,], aes(x = LONGITUD, y = LATITUD, colour = `MARCA DE LA CÁMARA`, size = 2)) +
@@ -2060,7 +2145,7 @@ ggplot() +
 
 **San Pedro de la Paz**
 
-```{r biobio.inventary3, echo=FALSE, warning=FALSE}
+```{r biobio.inventary3, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
   annotation_map_tile(type = "osm", zoom = 15) +
   geom_point(data = biobio.inventary.online[biobio.inventary.online$COMUNA == "San Pedro de la Paz" & biobio.inventary.online$LONGITUD > -73.3,], aes(x = LONGITUD, y = LATITUD, colour = `MARCA DE LA CÁMARA`, size = 2)) +
@@ -2071,7 +2156,7 @@ ggplot() +
 
 **Chiguayante**
 
-```{r biobio.inventary4, echo=FALSE, warning=FALSE}
+```{r biobio.inventary4, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
   annotation_map_tile(type = "osm", zoom = 15) +
   geom_point(data = biobio.inventary.online[biobio.inventary.online$COMUNA == "Chiguayante",], aes(x = LONGITUD, y = LATITUD, colour = `MARCA DE LA CÁMARA`, size = 2)) +
@@ -2082,7 +2167,7 @@ ggplot() +
 
 **Talcahuano**
 
-```{r biobio.inventary5, echo=FALSE, warning=FALSE}
+```{r biobio.inventary5, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
   annotation_map_tile(type = "osm", zoom = 20) +
   geom_point(data = biobio.inventary.online[biobio.inventary.online$COMUNA == "Talcahuano",], aes(x = LONGITUD, y = LATITUD, colour = `MARCA DE LA CÁMARA`, size = 2)) +
@@ -2136,11 +2221,41 @@ ggplot(trafic.alerts[trafic.alerts$Subtype %in% top,]) +
 
 ### Distribución geográfica
 
+```{r trafic.alerts2.html, echo=FALSE, warning=FALSE, eval=knitr::is_html_output()}
+pal <- colorFactor(
+  palette = c("#F0F", "#00F", "#0FF", "#0F0", "#FF0", "#F00"),
+  domain = trafic.alerts$Type
+)
+leaflet(trafic.alerts) %>%
+  addTiles() %>%
+  addCircleMarkers(
+    lng = ~lng,
+    lat = ~lat,
+    color = ~pal(Type),
+    radius = 6,
+    stroke = F,
+    fillOpacity = 0.8
+  ) %>%
+  addLegend(
+    "bottomright",
+    pal = pal,
+    values = ~Type,
+    title = "Type",
+    opacity = 1
+  ) %>%
+  addScaleBar(position = "bottomleft") %>%
+  setView(
+    lng = mean(trafic.alerts$lng),
+    lat = mean(trafic.alerts$lat),
+    zoom = 10
+  )
+```
+
 **Concepción, San Pedro de la Paz, Talcahuano, Hualpén, Penco y Hualqui**
 
 *JAM*
 
-```{r trafic.alerts2, echo=FALSE, warning=FALSE}
+```{r trafic.alerts2, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
   annotation_map_tile(type = "osm", zoom = 12) +
   stat_density_2d(
@@ -2156,7 +2271,7 @@ ggplot() +
 
 *HAZARD*
 
-```{r trafic.alerts3, echo=FALSE, warning=FALSE}
+```{r trafic.alerts3, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
   annotation_map_tile(type = "osm", zoom = 12) +
   stat_density_2d(
@@ -2172,7 +2287,7 @@ ggplot() +
 
 *WEATHERHAZARD*
 
-```{r trafic.alerts4, echo=FALSE, warning=FALSE}
+```{r trafic.alerts4, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
   annotation_map_tile(type = "osm", zoom = 12) +
   stat_density_2d(
@@ -2188,7 +2303,7 @@ ggplot() +
 
 *ACCIDENT*
 
-```{r trafic.alerts5, echo=FALSE, warning=FALSE}
+```{r trafic.alerts5, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
   annotation_map_tile(type = "osm", zoom = 12) +
   stat_density_2d(
@@ -2204,7 +2319,7 @@ ggplot() +
 
 *ROAD_CLOSED*
 
-```{r trafic.alerts6, echo=FALSE, warning=FALSE}
+```{r trafic.alerts6, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
   annotation_map_tile(type = "osm", zoom = 12) +
   stat_density_2d(
@@ -2222,7 +2337,7 @@ ggplot() +
 
 *JAM*
 
-```{r trafic.alerts7, echo=FALSE, warning=FALSE}
+```{r trafic.alerts7, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
   annotation_map_tile(type = "osm", zoom = 10) +
   stat_density_2d(
@@ -2238,7 +2353,7 @@ ggplot() +
 
 *HAZARD*
 
-```{r trafic.alerts8, echo=FALSE, warning=FALSE}
+```{r trafic.alerts8, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
   annotation_map_tile(type = "osm", zoom = 10) +
   stat_density_2d(
@@ -2254,7 +2369,7 @@ ggplot() +
 
 *WEATHERHAZARD*
 
-```{r trafic.alerts9, echo=FALSE, warning=FALSE}
+```{r trafic.alerts9, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
   annotation_map_tile(type = "osm", zoom = 10) +
   stat_density_2d(
@@ -2270,7 +2385,7 @@ ggplot() +
 
 *ACCIDENT*
 
-```{r trafic.alerts10, echo=FALSE, warning=FALSE}
+```{r trafic.alerts10, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
   annotation_map_tile(type = "osm", zoom = 10) +
   stat_density_2d(
@@ -2286,7 +2401,7 @@ ggplot() +
 
 *ROAD_CLOSED*
 
-```{r trafic.alerts11, echo=FALSE, warning=FALSE}
+```{r trafic.alerts11, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
   annotation_map_tile(type = "osm", zoom = 10) +
   stat_density_2d(
@@ -2304,7 +2419,7 @@ ggplot() +
 
 *JAM*
 
-```{r trafic.alerts12, echo=FALSE, warning=FALSE}
+```{r trafic.alerts12, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
   annotation_map_tile(type = "osm", zoom = 15) +
   stat_density_2d(
@@ -2320,7 +2435,7 @@ ggplot() +
 
 *HAZARD*
 
-```{r trafic.alerts13, echo=FALSE, warning=FALSE}
+```{r trafic.alerts13, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
   annotation_map_tile(type = "osm", zoom = 15) +
   stat_density_2d(
@@ -2336,7 +2451,7 @@ ggplot() +
 
 *WEATHERHAZARD*
 
-```{r trafic.alerts14, echo=FALSE, warning=FALSE}
+```{r trafic.alerts14, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
   annotation_map_tile(type = "osm", zoom = 15) +
   stat_density_2d(
@@ -2352,7 +2467,7 @@ ggplot() +
 
 *ACCIDENT*
 
-```{r trafic.alerts15, echo=FALSE, warning=FALSE}
+```{r trafic.alerts15, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
   annotation_map_tile(type = "osm", zoom = 15) +
   stat_density_2d(
@@ -2368,7 +2483,7 @@ ggplot() +
 
 *ROAD_CLOSED*
 
-```{r trafic.alerts16, echo=FALSE, warning=FALSE}
+```{r trafic.alerts16, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
   annotation_map_tile(type = "osm", zoom = 15) +
   stat_density_2d(
@@ -2386,7 +2501,7 @@ ggplot() +
 
 *JAM*
 
-```{r trafic.alerts17, echo=FALSE, warning=FALSE}
+```{r trafic.alerts17, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
   annotation_map_tile(type = "osm", zoom = 15) +
   stat_density_2d(
@@ -2402,7 +2517,7 @@ ggplot() +
 
 *HAZARD*
 
-```{r trafic.alerts18, echo=FALSE, warning=FALSE}
+```{r trafic.alerts18, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
   annotation_map_tile(type = "osm", zoom = 15) +
   stat_density_2d(
@@ -2418,7 +2533,7 @@ ggplot() +
 
 *WEATHERHAZARD*
 
-```{r trafic.alerts19, echo=FALSE, warning=FALSE}
+```{r trafic.alerts19, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
   annotation_map_tile(type = "osm", zoom = 15) +
   stat_density_2d(
@@ -2434,7 +2549,7 @@ ggplot() +
 
 *ACCIDENT*
 
-```{r trafic.alerts20, echo=FALSE, warning=FALSE}
+```{r trafic.alerts20, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
   annotation_map_tile(type = "osm", zoom = 15) +
   stat_density_2d(
@@ -2450,7 +2565,7 @@ ggplot() +
 
 *ROAD_CLOSED*
 
-```{r trafic.alerts21, echo=FALSE, warning=FALSE}
+```{r trafic.alerts21, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
   annotation_map_tile(type = "osm", zoom = 15) +
   stat_density_2d(
@@ -2479,11 +2594,41 @@ ggplot(accidents) +
   labs(y = "City", fill = "Avg Reliability")
 ```
 
-## Distribución geográfica
+### Distribución geográfica
+
+```{r accidents1.html, echo=FALSE, warning=FALSE, eval=knitr::is_html_output()}
+pal <- colorNumeric(
+  palette = c("blue", "green", "yellow", "red"),
+  domain = accidents$`Avg Reliability`
+)
+leaflet(accidents) %>%
+  addTiles() %>%
+  addCircleMarkers(
+    lng = ~lng,
+    lat = ~lat,
+    color = ~pal(`Avg Reliability`),
+    radius = 6,
+    stroke = F,
+    fillOpacity = 0.8
+  ) %>%
+  addLegend(
+    "bottomright",
+    pal = pal,
+    values = ~`Avg Reliability`,
+    title = "Avg Reliability",
+    opacity = 1
+  ) %>%
+  addScaleBar(position = "bottomleft") %>%
+  setView(
+    lng = mean(accidents$lng),
+    lat = mean(accidents$lat),
+    zoom = 10
+  )
+```
 
 **Concepción, San Pedro de la Paz, Talcahuano, Hualpén, Penco, Hualqui, Lirquén y Lenga**
 
-```{r accidents1, echo=FALSE, warning=FALSE}
+```{r accidents1, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
   annotation_map_tile(type = "osm", zoom = 12) +
   stat_density_2d(
@@ -2499,7 +2644,7 @@ ggplot() +
 
 **Los Ángeles**
 
-```{r accidents2, echo=FALSE, warning=FALSE}
+```{r accidents2, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
   annotation_map_tile(type = "osm", zoom = 12) +
   stat_density_2d(
@@ -2515,7 +2660,7 @@ ggplot() +
 
 **Chiguayante**
 
-```{r accidents3, echo=FALSE, warning=FALSE}
+```{r accidents3, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
   annotation_map_tile(type = "osm", zoom = 12) +
   stat_density_2d(
@@ -2531,7 +2676,7 @@ ggplot() +
 
 **Tomé**
 
-```{r accidents4, echo=FALSE, warning=FALSE}
+```{r accidents4, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
   annotation_map_tile(type = "osm", zoom = 12) +
   stat_density_2d(
@@ -2547,7 +2692,7 @@ ggplot() +
 
 **Huertos Familiares**
 
-```{r accidents5, echo=FALSE, warning=FALSE}
+```{r accidents5, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
   annotation_map_tile(type = "osm", zoom = 12) +
   stat_density_2d(
