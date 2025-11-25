@@ -99,7 +99,7 @@ print(dt.sys)
 load.time.sys[[ko]] <- dt.sys
 ```
 
-# Extraer datos
+# Extracción de datos
 
 ## Siniestros buses interurbanos(1).xlsx
 
@@ -1462,7 +1462,7 @@ El dataset contiene 13502 registros de irregularidades de tráfico documentadas 
     - Habilitación de análisis agregados por múltiples dimensiones
 - **Dataset final**: 13502 registros × 8 columnas optimizadas
 
-# Discretizar datos
+# Discretización de datos
 
 ```{r quantum.data, eval=FALSE, include=FALSE}
 meters.per.degree.lat <- 111320
@@ -1615,7 +1615,7 @@ La función retorna una matriz $\mathbb{R}^{5 \times m}$ con columnas:
 Esta función implementa esencialmente un **proceso de cuantización vectorial** en el espacio $\mathbb{R}^3$ (tiempo × latitud × longitud) con métricas adaptativas.
 
 
-# Visualizar datos
+# Visualización de datos
 
 ## Accidentes interurbanos
 
