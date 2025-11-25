@@ -25,6 +25,7 @@ library(googlesheets4)
 library(grid)
 library(gridExtra)
 library(knitr)
+library(leaflet)
 library(lubridate)
 library(maps)
 library(OpenStreetMap)
@@ -1672,9 +1673,51 @@ ggplot(interurban.bus.accidents[interurban.bus.accidents$Comuna %in% top,]) +
 
 ## Mediciones de velocidad por satélite
 
+
 ```{r gh0269290, echo=FALSE, warning=FALSE}
 ggplot(gh026929) +
   geom_density(aes(x = `GPS (2D speed) [m/s]`))
+```
+
+
+```{r gh0269291.html, echo=FALSE, warning=FALSE, eval=knitr::is_html_output()}
+pal <- colorNumeric(
+  palette = c("blue", "green", "yellow", "red"),
+  domain = gh026929$`GPS (2D speed) [m/s]`
+)
+leaflet(gh026929) %>%
+  addTiles() %>%
+  addCircleMarkers(
+    lng = ~`GPS (Long.) [deg]`,
+    lat = ~`GPS (Lat.) [deg]`,
+    color = ~pal(`GPS (2D speed) [m/s]`),
+    radius = 6,
+    stroke = FALSE,
+    fillOpacity = 0.8,
+    popup = ~paste(
+      "Velocidad 2D:", round(`GPS (2D speed) [m/s]`, 2), "m/s<br>",
+      "Velocidad 3D:", round(`GPS (3D speed) [m/s]`, 2), "m/s<br>",
+      "Precisión:", precision, "m<br>",
+      "Fecha:", format(date, "%Y-%m-%d %H:%M")
+    )
+  ) %>%
+  addLegend(
+    "bottomright",
+    pal = pal,
+    values = ~`GPS (2D speed) [m/s]`,
+    title = "Velocidad 2D (m/s)",
+    opacity = 1
+  ) %>%
+  addScaleBar(position = "bottomleft") %>%
+  setView(
+    lng = mean(gh026929$`GPS (Long.) [deg]`),
+    lat = mean(gh026929$`GPS (Lat.) [deg]`),
+    zoom = 15
+  )
+```
+
+
+```{r gh0269291, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
   annotation_map_tile(type = "osm", zoom = 15) +
   geom_point(data = gh026929, aes(x = `GPS (Long.) [deg]`, y = `GPS (Lat.) [deg]`, colour = `GPS (2D speed) [m/s]`)) +
