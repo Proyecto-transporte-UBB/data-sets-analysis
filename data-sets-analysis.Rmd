@@ -7,6 +7,11 @@ output:
     toc: true
     toc_depth: 3
     keep_tex: true
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    number_sections: true
 ---
 
 ```{r setup, include=FALSE}
@@ -87,12 +92,40 @@ for(ko in key.objects[key.objects != "tracking.gps.df"]) {
 ```
 
 ```{r load.tracking.gps.df, include=FALSE}
-options(future.globals.maxSize = 2^6 * 1000 * 1024^2)
+ml <- 8 * 1024
+ms <- 6 * 1024^3
+memory.limit(size = ml)
+options(future.globals.maxSize = ms)
+gc()
+loaded <- F
 ko <- "tracking.gps.df"
 start.sys <- Sys.time()
 file.name <- paste(ko, "rds", sep = ".")
 file.path. <- paste("~/GitHub/data-sets-analysis/rds-files", file.name, sep = "/")
-assign(ko, ko %>% readRDS(file = file.path.))
+tryCatch({
+  assign(ko, ko %>% readRDS(file = file.path.))
+  loaded <- T
+}, error = function(e){
+  print(paste("Error al cargar:", e$message))
+  ml <- 2 * ml
+  ms <- 2 * ms
+  memory.limit(size = ml)
+  options(future.globals.maxSize = ms)
+  gc()
+})
+while(!loaded){
+  tryCatch({
+    assign(ko, ko %>% readRDS(file = file.path.))
+    loaded <- T
+  }, error = function(e){
+    print(paste("Error al cargar:", e$message))
+    ml <- 2 * ml
+    ms <- 2 * ms
+    memory.limit(size = ml)
+    options(future.globals.maxSize = ms)
+    gc()
+  })
+}
 end.sys <- Sys.time()
 dt.sys <- end.sys - start.sys
 print(ko)
@@ -1856,7 +1889,7 @@ leaflet(peak.radio) %>%
 
 ```{r radio.accidents.df4, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
-  annotation_map_tile(type = "osm", zoom = 10) +
+  annotation_map_tile(type = "osm", zoom = 8) +
   geom_point(data = peak.radio, aes(x = lng, y = lat, colour = `Tipo de incidente`)) +
   labs(x = "Longitud", y = "Latitud") +
   coord_sf(crs = 4326)
@@ -2136,7 +2169,7 @@ leaflet(biobio.inventary.online) %>%
 
 ```{r biobio.inventary2, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
-  annotation_map_tile(type = "osm", zoom = 15) +
+  annotation_map_tile(type = "osm", zoom = 12) +
   geom_point(data = biobio.inventary.online[biobio.inventary.online$COMUNA == "Concepción" & biobio.inventary.online$LATITUD < -36.6,], aes(x = LONGITUD, y = LATITUD, colour = `MARCA DE LA CÁMARA`, size = 2)) +
   labs(x = "Longitud", y = "Latitud") +
   coord_sf(crs = 4326) +
@@ -2147,7 +2180,7 @@ ggplot() +
 
 ```{r biobio.inventary3, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
-  annotation_map_tile(type = "osm", zoom = 15) +
+  annotation_map_tile(type = "osm", zoom = 10) +
   geom_point(data = biobio.inventary.online[biobio.inventary.online$COMUNA == "San Pedro de la Paz" & biobio.inventary.online$LONGITUD > -73.3,], aes(x = LONGITUD, y = LATITUD, colour = `MARCA DE LA CÁMARA`, size = 2)) +
   labs(x = "Longitud", y = "Latitud") +
   coord_sf(crs = 4326) +
@@ -2158,7 +2191,7 @@ ggplot() +
 
 ```{r biobio.inventary4, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
-  annotation_map_tile(type = "osm", zoom = 15) +
+  annotation_map_tile(type = "osm", zoom = 10) +
   geom_point(data = biobio.inventary.online[biobio.inventary.online$COMUNA == "Chiguayante",], aes(x = LONGITUD, y = LATITUD, colour = `MARCA DE LA CÁMARA`, size = 2)) +
   labs(x = "Longitud", y = "Latitud") +
   coord_sf(crs = 4326) +
@@ -2169,7 +2202,7 @@ ggplot() +
 
 ```{r biobio.inventary5, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
-  annotation_map_tile(type = "osm", zoom = 20) +
+  annotation_map_tile(type = "osm", zoom = 16) +
   geom_point(data = biobio.inventary.online[biobio.inventary.online$COMUNA == "Talcahuano",], aes(x = LONGITUD, y = LATITUD, colour = `MARCA DE LA CÁMARA`, size = 2)) +
   labs(x = "Longitud", y = "Latitud") +
   coord_sf(crs = 4326) +
