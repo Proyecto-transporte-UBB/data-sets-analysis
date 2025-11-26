@@ -3,15 +3,15 @@ title: "Análisis de los Sets de Datos"
 author: "Luciano Hernández"
 date: "`r Sys.Date()`"
 output:
-  pdf_document:
-    toc: true
-    toc_depth: 3
-    keep_tex: true
   html_document:
     toc: true
     toc_depth: 3
     toc_float: true
     number_sections: true
+  pdf_document:
+    toc: true
+    toc_depth: 3
+    keep_tex: true
 ---
 
 ```{r setup, include=FALSE}
@@ -2088,7 +2088,9 @@ leaflet(gps.events) %>%
   )
 ```
 
-**Chile**
+```{r gps.events0.title, echo=FALSE, eval=!knitr::is_html_output()}
+cat("**Chile**")
+```
 
 ```{r gps.events0, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 gps.events.chile <- gps.events[gps.events$longitud_ <= -71,]
@@ -2099,7 +2101,9 @@ ggplot() +
   coord_sf(crs = 4326)
 ```
 
-**Argentina**
+```{r gps.events1.title, echo=FALSE, eval=!knitr::is_html_output()}
+cat("**Argentina**")
+```
 
 ```{r gps.events1, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 gps.events.argentina <- gps.events[gps.events$longitud_ > -71,]
@@ -2171,7 +2175,9 @@ leaflet(biobio.inventary.online) %>%
   )
 ```
 
-**Concepción**
+```{r biobio.inventary2.title, echo=FALSE, eval=!knitr::is_html_output()}
+cat("**Concepción**")
+```
 
 ```{r biobio.inventary2, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
@@ -2182,7 +2188,9 @@ ggplot() +
   guides(size = "none")
 ```
 
-**San Pedro de la Paz**
+```{r biobio.inventary3.title, echo=FALSE, eval=!knitr::is_html_output()}
+cat("**San Pedro de la Paz**")
+```
 
 ```{r biobio.inventary3, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
@@ -2193,7 +2201,9 @@ ggplot() +
   guides(size = "none")
 ```
 
-**Chiguayante**
+```{r biobio.inventary4.title, echo=FALSE, eval=!knitr::is_html_output()}
+cat("**Chiguayante**")
+```
 
 ```{r biobio.inventary4, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
@@ -2204,7 +2214,9 @@ ggplot() +
   guides(size = "none")
 ```
 
-**Talcahuano**
+```{r biobio.inventary5.title, echo=FALSE, eval=!knitr::is_html_output()}
+cat("**Talcahuano**")
+```
 
 ```{r biobio.inventary5, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
@@ -2290,9 +2302,13 @@ leaflet(trafic.alerts) %>%
   )
 ```
 
-**Concepción, San Pedro de la Paz, Talcahuano, Hualpén, Penco y Hualqui**
+```{r trafic.alerts2.title0, echo=FALSE, eval=!knitr::is_html_output()}
+cat("**Concepción, San Pedro de la Paz, Talcahuano, Hualpén, Penco y Hualqui**")
+```
 
-*JAM*
+```{r trafic.alerts2.title1, echo=FALSE, eval=!knitr::is_html_output()}
+cat("*JAM*")
+```
 
 ```{r trafic.alerts2, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
@@ -2308,7 +2324,9 @@ ggplot() +
   guides(size = "none")
 ```
 
-*HAZARD*
+```{r trafic.alerts3.title, echo=FALSE, eval=!knitr::is_html_output()}
+cat("*HAZARD*")
+```
 
 ```{r trafic.alerts3, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
@@ -2324,7 +2342,9 @@ ggplot() +
   guides(size = "none")
 ```
 
-*WEATHERHAZARD*
+```{r trafic.alerts4.title, echo=FALSE, eval=!knitr::is_html_output()}
+cat("*WEATHERHAZARD*")
+```
 
 ```{r trafic.alerts4, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
@@ -2340,7 +2360,9 @@ ggplot() +
   guides(size = "none")
 ```
 
-*ACCIDENT*
+```{r trafic.alerts5.title, echo=FALSE, eval=!knitr::is_html_output()}
+cat("*ACCIDENT*")
+```
 
 ```{r trafic.alerts5, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
@@ -2356,7 +2378,9 @@ ggplot() +
   guides(size = "none")
 ```
 
-*ROAD_CLOSED*
+```{r trafic.alerts6.title, echo=FALSE, eval=!knitr::is_html_output()}
+cat("*ROAD_CLOSED*")
+```
 
 ```{r trafic.alerts6, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
@@ -2372,9 +2396,13 @@ ggplot() +
   guides(size = "none")
 ```
 
-**Los Ángeles**
+```{r trafic.alerts7.title0, echo=FALSE, eval=!knitr::is_html_output()}
+cat("**Los Ángeles**")
+```
 
-*JAM*
+```{r trafic.alerts7.title1, echo=FALSE, eval=!knitr::is_html_output()}
+cat("*JAM*")
+```
 
 ```{r trafic.alerts7, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
@@ -2390,7 +2418,9 @@ ggplot() +
   guides(size = "none")
 ```
 
-*HAZARD*
+```{r trafic.alerts8.title, echo=FALSE, eval=!knitr::is_html_output()}
+cat("*HAZARD*")
+```
 
 ```{r trafic.alerts8, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
@@ -2406,7 +2436,9 @@ ggplot() +
   guides(size = "none")
 ```
 
-*WEATHERHAZARD*
+```{r trafic.alerts9.title, echo=FALSE, eval=!knitr::is_html_output()}
+cat("*WEATHERHAZARD*")
+```
 
 ```{r trafic.alerts9, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
@@ -2422,7 +2454,9 @@ ggplot() +
   guides(size = "none")
 ```
 
-*ACCIDENT*
+```{r trafic.alerts10.title, echo=FALSE, eval=!knitr::is_html_output()}
+cat("*ACCIDENT*")
+```
 
 ```{r trafic.alerts10, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
@@ -2438,7 +2472,9 @@ ggplot() +
   guides(size = "none")
 ```
 
-*ROAD_CLOSED*
+```{r trafic.alerts11.title, echo=FALSE, eval=!knitr::is_html_output()}
+cat("*ROAD_CLOSED*")
+```
 
 ```{r trafic.alerts11, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
@@ -2454,9 +2490,13 @@ ggplot() +
   guides(size = "none")
 ```
 
-**Chiguayante**
+```{r trafic.alerts12.title0, echo=FALSE, eval=!knitr::is_html_output()}
+cat("**Chiguayante**")
+```
 
-*JAM*
+```{r trafic.alerts12.title1, echo=FALSE, eval=!knitr::is_html_output()}
+cat("*JAM*")
+```
 
 ```{r trafic.alerts12, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
@@ -2472,7 +2512,9 @@ ggplot() +
   guides(size = "none")
 ```
 
-*HAZARD*
+```{r trafic.alerts13.title, echo=FALSE, eval=!knitr::is_html_output()}
+cat("*HAZARD*")
+```
 
 ```{r trafic.alerts13, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
@@ -2488,7 +2530,9 @@ ggplot() +
   guides(size = "none")
 ```
 
-*WEATHERHAZARD*
+```{r trafic.alerts14.title, echo=FALSE, eval=!knitr::is_html_output()}
+cat("*WEATHERHAZARD*")
+```
 
 ```{r trafic.alerts14, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
@@ -2504,7 +2548,9 @@ ggplot() +
   guides(size = "none")
 ```
 
-*ACCIDENT*
+```{r trafic.alerts15.title, echo=FALSE, eval=!knitr::is_html_output()}
+cat("*ACCIDENT*")
+```
 
 ```{r trafic.alerts15, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
@@ -2520,7 +2566,9 @@ ggplot() +
   guides(size = "none")
 ```
 
-*ROAD_CLOSED*
+```{r trafic.alerts16.title, echo=FALSE, eval=!knitr::is_html_output()}
+cat("*ROAD_CLOSED*")
+```
 
 ```{r trafic.alerts16, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
@@ -2536,9 +2584,13 @@ ggplot() +
   guides(size = "none")
 ```
 
-**Tomé**
+```{r trafic.alerts17.title0, echo=FALSE, eval=!knitr::is_html_output()}
+cat("**Tomé**")
+```
 
-*JAM*
+```{r trafic.alerts17.title1, echo=FALSE, eval=!knitr::is_html_output()}
+cat("*JAM*")
+```
 
 ```{r trafic.alerts17, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
@@ -2554,7 +2606,9 @@ ggplot() +
   guides(size = "none")
 ```
 
-*HAZARD*
+```{r trafic.alerts18.title, echo=FALSE, eval=!knitr::is_html_output()}
+cat("*HAZARD*")
+```
 
 ```{r trafic.alerts18, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
@@ -2570,7 +2624,9 @@ ggplot() +
   guides(size = "none")
 ```
 
-*WEATHERHAZARD*
+```{r trafic.alerts19.title, echo=FALSE, eval=!knitr::is_html_output()}
+cat("*WEATHERHAZARD*")
+```
 
 ```{r trafic.alerts19, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
@@ -2586,7 +2642,9 @@ ggplot() +
   guides(size = "none")
 ```
 
-*ACCIDENT*
+```{r trafic.alerts20.title, echo=FALSE, eval=!knitr::is_html_output()}
+cat("*ACCIDENT*")
+```
 
 ```{r trafic.alerts20, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
@@ -2602,7 +2660,9 @@ ggplot() +
   guides(size = "none")
 ```
 
-*ROAD_CLOSED*
+```{r trafic.alerts21.title, echo=FALSE, eval=!knitr::is_html_output()}
+cat("*ROAD_CLOSED*")
+```
 
 ```{r trafic.alerts21, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
@@ -2665,7 +2725,9 @@ leaflet(accidents) %>%
   )
 ```
 
-**Concepción, San Pedro de la Paz, Talcahuano, Hualpén, Penco, Hualqui, Lirquén y Lenga**
+```{r accidents1.title, echo=FALSE, eval=!knitr::is_html_output()}
+cat("**Concepción, San Pedro de la Paz, Talcahuano, Hualpén, Penco, Hualqui, Lirquén y Lenga**")
+```
 
 ```{r accidents1, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
@@ -2681,7 +2743,9 @@ ggplot() +
   guides(size = "none")
 ```
 
-**Los Ángeles**
+```{r accidents2.title, echo=FALSE, eval=!knitr::is_html_output()}
+cat("**Los Ángeles**")
+```
 
 ```{r accidents2, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
@@ -2697,7 +2761,9 @@ ggplot() +
   guides(size = "none")
 ```
 
-**Chiguayante**
+```{r accidents3.title, echo=FALSE, eval=!knitr::is_html_output()}
+cat("**Chiguayante**")
+```
 
 ```{r accidents3, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
@@ -2713,7 +2779,9 @@ ggplot() +
   guides(size = "none")
 ```
 
-**Tomé**
+```{r accidents4.title, echo=FALSE, eval=!knitr::is_html_output()}
+cat("**Tomé**")
+```
 
 ```{r accidents4, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
@@ -2729,7 +2797,9 @@ ggplot() +
   guides(size = "none")
 ```
 
-**Huertos Familiares**
+```{r accidents5.title, echo=FALSE, eval=!knitr::is_html_output()}
+cat("**Huertos Familiares**")
+```
 
 ```{r accidents5, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
