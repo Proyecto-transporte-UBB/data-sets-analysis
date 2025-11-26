@@ -414,9 +414,9 @@ _Clasificación de Calidad de Señal_
 _Escala DOP (Dilution of Precision)_:
 
 - `Excelente`: $DOP < 1$
-- `Muy Buena`: $1 <= DOP < 2$
-- `Buena`: $2 <= DOP < 5$
-- `Regular`: $5 <= DOP <= 10$
+- `Muy Buena`: $1 \leq DOP < 2$
+- `Buena`: $2 \leq DOP < 5$
+- `Regular`: $5 \leq DOP \leq 10$
 - `Mala`: $DOP > 10$
 
 _Optimización de Tipos de Datos_
@@ -1709,11 +1709,17 @@ ggplot(interurban.bus.accidents[interurban.bus.accidents$Comuna %in% top,]) +
 
 ```{r gh0269290, echo=FALSE, warning=FALSE}
 ggplot(gh026929) +
-  geom_density(aes(x = `GPS (2D speed) [m/s]`))
+  geom_histogram(aes(x = `GPS (2D speed) [m/s]`))
 ```
 
 
-```{r gh0269291.html, echo=FALSE, warning=FALSE, eval=knitr::is_html_output()}
+```{r gh0269291, echo=FALSE, warning=FALSE}
+ggplot(gh026929) +
+  geom_histogram(aes(x = precision))
+```
+
+
+```{r gh0269292.html, echo=FALSE, warning=FALSE, eval=knitr::is_html_output()}
 pal <- colorNumeric(
   palette = c("blue", "green", "yellow", "red"),
   domain = gh026929$`GPS (2D speed) [m/s]`
@@ -1744,7 +1750,7 @@ leaflet(gh026929) %>%
 ```
 
 
-```{r gh0269291, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
+```{r gh0269292, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 ggplot() +
   annotation_map_tile(type = "osm", zoom = 15) +
   geom_point(data = gh026929, aes(x = `GPS (Long.) [deg]`, y = `GPS (Lat.) [deg]`, colour = `GPS (2D speed) [m/s]`)) +
