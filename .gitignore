@@ -57,3 +57,5 @@ data-sets-analysis_files/
 *.tex
 
 rds-files/
+
+shapefiles/
