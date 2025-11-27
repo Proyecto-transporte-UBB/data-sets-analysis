@@ -91,8 +91,8 @@ for(ko in key.objects[key.objects != "tracking.gps.df"]) {
 }
 ```
 
-```{r load.tracking.gps.df, include=FALSE}
-ml <- 8 * 1024
+```{r load.tracking.gps.df, include=FALSE, eval=FALSE}
+ml <- 8 * 1024^3
 ms <- 6 * 1024^3
 memory.limit(size = ml)
 options(future.globals.maxSize = ms)
@@ -158,7 +158,6 @@ interurban.bus.accidents$`Ubicación Relativa` <- interurban.bus.accidents$`Ubic
 interurban.bus.accidents$`Causa (CONASET)` <- interurban.bus.accidents$`Causa (CONASET)` %>% as.factor()
 interurban.bus.accidents$`Causa Accidente` <- interurban.bus.accidents$`Causa Accidente` %>% as.factor()
 interurban.bus.accidents %>% summary()
-interurban.bus.accidents[interurban.bus.accidents$Zona == "RURAL",] %>% nrow() / interurban.bus.accidents %>% nrow() * 100
 ```
 
 El análisis comprende 6268 registros de siniestros de buses interurbanos ocurridos entre el 1 de enero de 2014 y el 29 de diciembre de 2023.
@@ -227,6 +226,15 @@ gh026929$`GPS (2D speed) [m/s]` <- reduce.2d.speed(gh026929$`GPS (2D speed) [m/s
 gh026929$`GPS (Lat.) [deg]` <- gh026929$`GPS (Lat.) [deg]` %>% reduce.coords()
 gh026929$`GPS (Long.) [deg]` <- gh026929$`GPS (Long.) [deg]` %>% reduce.coords()
 gh026929 %>% summary()
+gh026929.sf <- gh026929 %>% st_as_sf(
+  coords = c("GPS (Long.) [deg]", "GPS (Lat.) [deg]"),
+  crs = 4326
+)
+gh026929.sf %>% st_write(.,
+  "~/GitHub/data-sets-analysis/shapefiles/gh026929.shp",
+  driver = "ESRI Shapefile",
+  append = F
+)
 ```
 
 El dataset contiene 1726 registros de telemetría GPS capturados durante un período específico de operación vehicular.
@@ -333,6 +341,42 @@ tracking.gps.df$EVT_SEÑAL <- tracking.gps.df$EVT_SEÑAL %>% as.factor()
 end.sys <- Sys.time()
 modifying.time <- end.sys - start.sys
 # Modifying time: 1807.08 s = 30 m + 7.08 s
+options(future.globals.maxSize = 16 * 1024^3)
+shp.time <- list()
+tracking.gps.df.sf <- list()
+for(folder in folders){
+  start.sys <- Sys.time()
+  df <- tracking.gps.df[tracking.gps.df$EVT_CARPETA == folder,]
+  df.rename <- df %>%
+    rename(
+      SERV_ID = EVT_SERVICIO_ID,
+      SERV_ID_O = EVT_SERVICIO_ID_ORACLE,
+      GPS_TIME_CH = EVT_GPS_TIME_CHILE_STR,
+      GPS_TIME_UTC = EVT_GPS_TIME_UTC_0,
+      DIST_REC = `EVT_DISTANCIA_RECORRIDA (Km)`,
+      DIST_SERV = EVT_DISTACIA_A_SERVICIO,
+      CARPETA = EVT_CARPETA,
+      SEÑAL = EVT_SEÑAL
+    )
+  sf <- df.rename %>% st_as_sf(
+    coords = c("X_EVT_GPS_LON", "Y_EVT_GPS_LAT"),
+    crs = 4326
+  )
+  file.name <- paste(folder, "shp", sep = ".")
+  file.path. <- paste("~/GitHub/data-sets-analysis/shapefiles/DTPR", file.name, sep = "/")
+  sf %>% st_write(.,
+    file.path.,
+    driver = "ESRI Shapefile",
+    append = F
+  )
+  tracking.gps.df.sf[[folder]] <- sf
+  end.sys <- Sys.time()
+  dt <- end.sys - start.sys
+  shp.time[[folder]] <- dt
+  print(folder)
+  print(dt)
+}
+# Shapefile time:
 ```
 
 ```{r getData1.51, eval=FALSE, include=FALSE}
@@ -716,6 +760,15 @@ radio.accidents.df <- radio.accidents.df[!(radio.accidents.df$lat %>% is.na()),]
 radio.accidents.df$Hora <- paste(radio.accidents.df$fecha, radio.accidents.df$Hora) %>% as.POSIXct(format = "%Y-%m-%d %H:%M")
 radio.accidents.df <- radio.accidents.df %>% select(-fecha)
 radio.accidents.df %>% summary()
+radio.accidents.df.sf <- radio.accidents.df %>% st_as_sf(
+  coords = c("lng", "lat"),
+  crs = 4326
+)
+radio.accidents.df.sf %>% st_write(.,
+  "~/GitHub/data-sets-analysis/shapefiles/radio.accidents.df.shp",
+  driver = "ESRI Shapefile",
+  append = F
+)
 ```
 
 El dataset contiene 312 registros de incidentes de tráfico reportados a través de sistemas de radio durante un período de 37 días.
@@ -1096,6 +1149,15 @@ gps.events$evento_ <- gps.events$evento_ %>% as.factor()
 gps.events$direccion_ <- gps.events$direccion_ %>% as.factor()
 gps.events %>% nrow()
 gps.events %>% summary()
+gps.events.sf <- gps.events %>% st_as_sf(
+  coords = c("longitud_", "latitud_"),
+  crs = 4326
+)
+gps.events.sf %>% st_write(.,
+  "~/GitHub/data-sets-analysis/shapefiles/gps.events.shp",
+  driver = "ESRI Shapefile",
+  append = F
+)
 ```
 
 El dataset contiene 1000 eventos registrados por sistemas GPS vehiculares, capturando transiciones de estado en una ventana temporal específica.
@@ -1178,6 +1240,15 @@ biobio.inventary$`MARCA DEL CODIFICADOR DE VIDEO` <- biobio.inventary$`MARCA DEL
 biobio.inventary$`MODELO DEL CODIFICADOR DE VIDEO` <- biobio.inventary$`MODELO DEL CODIFICADOR DE VIDEO` %>% as.factor()
 biobio.inventary$REGIÓN <- biobio.inventary$REGIÓN %>% as.factor()
 biobio.inventary %>% summary()
+biobio.inventary.sf <- biobio.inventary %>% st_as_sf(
+  coords = c("LONGITUD", "LATITUD"),
+  crs = 4326
+)
+biobio.inventary.sf %>% st_write(.,
+  "~/GitHub/data-sets-analysis/shapefiles/biobio.inventary.shp",
+  driver = "ESRI Shapefile",
+  append = F
+)
 ```
 
 El inventario documenta 71 ubicaciones de cámaras de vigilancia y sus respectivos sistemas de codificación de video desplegados en la Región del Biobío, representando la infraestructura de monitoreo vial regional.
@@ -1272,6 +1343,15 @@ trafic.alerts$City <- trafic.alerts$City %>% as.factor()
 trafic.alerts$Type <- trafic.alerts$Type %>% as.factor()
 trafic.alerts$Subtype <- trafic.alerts$Subtype %>% as.factor()
 trafic.alerts %>% summary()
+trafic.alerts.sf <- trafic.alerts %>% st_as_sf(
+  coords = c("lng", "lat"),
+  crs = 4326
+)
+trafic.alerts.sf %>% st_write(.,
+  "~/GitHub/data-sets-analysis/shapefiles/trafic.alerts.shp",
+  driver = "ESRI Shapefile",
+  append = F
+)
 ```
 
 El dataset comprende 281759 alertas de tráfico generadas por usuarios de Waze, representando un año completo de reportes ciudadanos sobre condiciones viales en el Gran Concepción.
@@ -1365,6 +1445,15 @@ accidents$Date <- accidents$Date %>% str_replace_all(., setNames(
 accidents$Country <- accidents$Country %>% as.factor()
 accidents$City <- accidents$City %>% as.factor()
 accidents %>% summary()
+accidents.sf <- accidents %>% st_as_sf(
+  coords = c("lng", "lat"),
+  crs = 4326
+)
+accidents.sf %>% st_write(.,
+  "~/GitHub/data-sets-analysis/shapefiles/accidents.shp",
+  driver = "ESRI Shapefile",
+  append = F
+)
 ```
 
 El dataset contiene 281981 registros de accidentes de tránsito, proporcionando una visión detallada de la siniestralidad vial en el Gran Concepción durante un período de 11 meses.
