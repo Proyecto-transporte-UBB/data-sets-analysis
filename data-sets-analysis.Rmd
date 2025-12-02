@@ -944,13 +944,6 @@ El dataset contiene 338 mediciones de velocidad vehicular capturadas en el parad
 - "Auto, iba a doblar a Lo Plaza": 1 caso
 - "auto, se percibe cola": 1 caso
 
-### Aspectos que Requieren Clarificación
-
-**Información Crítica Faltante**
-
-- **Fecha de medición**: No especificada en los datos originales
-- **Clasificación vehicular**: Necesidad de confirmar si vehículos sin comentario deben categorizarse automáticamente como "Auto"
-
 ### Procesamiento y Normalización de Datos
 
 **Estructuración Multi-hoja**
@@ -1084,13 +1077,6 @@ El dataset contiene 432 mediciones de velocidad vehicular capturadas en el cruce
 
 - **Microbuses**: Registros específicamente identificados
 - **Motocicletas**: Registros categorizados separadamente
-
-### Aspectos que Requieren Clarificación
-
-**Información Crítica Faltante**:
-
-- **Fecha de medición**: No especificada en los datos originales
-- **Contexto temporal**: Día de semana vs. fin de semana no identificado
 
 ### Procesamiento y Normalización de Datos
 
@@ -1915,6 +1901,26 @@ ggplot(police.accidents) +
 ### Distribución por fecha y hora
 
 ```{r radio.accidents.df0, echo=FALSE, warning=FALSE}
+radio.accidents.df.sf <- radio.accidents.df %>% st_as_sf(
+  coords = c("lng", "lat"),
+  crs = 4326
+)
+biobio.inventary.sf <- biobio.inventary %>% st_as_sf(
+  coords = c("LONGITUD", "LATITUD"),
+  crs = 4326
+)
+nearest.camera <- st_nearest_feature(
+  radio.accidents.df.sf,
+  biobio.inventary.sf
+)
+distances <- st_distance(
+  radio.accidents.df.sf,
+  biobio.inventary.sf[nearest.camera, ],
+  by_element = T
+)
+radio.accidents.df.camera.distance <- radio.accidents.df
+radio.accidents.df.camera.distance$Cámara <- biobio.inventary$ID[nearest.camera]
+radio.accidents.df.camera.distance$`Distancia a Cámara` <- as.numeric(distances)
 ggplot(radio.accidents.df) +
   geom_bar(aes(x = Hora %>% as.Date(), fill = Hora %>% hour() %>% as.factor())) +
   labs(x = "Fecha", fill = "Hora")
@@ -1938,15 +1944,16 @@ ggplot(radio.accidents.df) +
 
 Hubo una gran cantidad de incidentes el día viernes 1ro de agosto a las 21 horas
 
-### Distribución por tipo de incidente durante el 1ro de agosto entre las 20 y 22 horas
+### Distribución por distancia a la cámara más cercana
 
 ```{r radio.accidents.df3, echo=FALSE, warning=FALSE}
-peak.radio <- radio.accidents.df[radio.accidents.df$Hora >= "2024-08-01 20:00" & radio.accidents.df$Hora <= "2024-08-01 22:00",]
-ggplot(peak.radio) +
-  geom_bar(aes(fill = dir, y = `Tipo de incidente` %>%
+peak.radio <- radio.accidents.df.camera.distance[radio.accidents.df.camera.distance$Hora >= "2024-08-01 20:00" & radio.accidents.df.camera.distance$Hora <= "2024-08-01 22:00",]
+ggplot(radio.accidents.df.camera.distance) +
+  geom_density(aes(x = `Distancia a Cámara`, colour = `Tipo de incidente` %>%
       fct_infreq() %>%
       fct_rev())) +
-  labs(y = "Tipo de incidente")
+  labs(colour = "Tipo de incidente") +
+  scale_x_log10()
 ```
 
 ### Distribución geográfica durante el 1ro de agosto entre las 20 y 22 horas
@@ -2183,9 +2190,29 @@ cat("**Chile**")
 
 ```{r gps.events0, echo=FALSE, warning=FALSE, eval=!knitr::is_html_output()}
 gps.events.chile <- gps.events[gps.events$longitud_ <= -71,]
+gps.events.chile.sf <- gps.events.chile %>% st_as_sf(
+  coords = c("longitud_", "latitud_"),
+  crs = 4326
+)
+biobio.inventary.sf <- biobio.inventary %>% st_as_sf(
+  coords = c("LONGITUD", "LATITUD"),
+  crs = 4326
+)
+nearest.camera <- st_nearest_feature(
+  gps.events.chile.sf,
+  biobio.inventary.sf
+)
+distances <- st_distance(
+  gps.events.chile.sf,
+  biobio.inventary.sf[nearest.camera, ],
+  by_element = T
+)
+gps.events.chile.camera.distance <- gps.events.chile
+gps.events.chile.camera.distance$Cámara <- biobio.inventary$ID[nearest.camera]
+gps.events.chile.camera.distance$`Distancia a Cámara` <- as.numeric(distances)
 ggplot() +
   annotation_map_tile(type = "osm", zoom = 17) +
-  geom_point(data = gps.events.chile, aes(x = longitud_, y = latitud_, colour = evento_, size = direccion_)) +
+  geom_point(data = gps.events.chile.camera.distance, aes(x = longitud_, y = latitud_, colour = evento_, size = `Distancia a Cámara`)) +
   labs(x = "Longitud", y = "Latitud") +
   coord_sf(crs = 4326)
 ```
@@ -2328,6 +2355,26 @@ ggplot(biobio.inventary) +
 ### Distribución por ciudad
 
 ```{r trafic.alerts0, echo=FALSE, warning=FALSE}
+trafic.alerts.sf <- trafic.alerts %>% st_as_sf(
+  coords = c("lng", "lat"),
+  crs = 4326
+)
+biobio.inventary.sf <- biobio.inventary %>% st_as_sf(
+  coords = c("LONGITUD", "LATITUD"),
+  crs = 4326
+)
+nearest.camera <- st_nearest_feature(
+  trafic.alerts.sf,
+  biobio.inventary.sf
+)
+distances <- st_distance(
+  trafic.alerts.sf,
+  biobio.inventary.sf[nearest.camera, ],
+  by_element = T
+)
+trafic.alerts.camera.distance <- trafic.alerts
+trafic.alerts.camera.distance$Cámara <- biobio.inventary$ID[nearest.camera]
+trafic.alerts.camera.distance$`Distancia a Cámara` <- as.numeric(distances)
 ggplot(trafic.alerts) +
   geom_bar(aes(y = City %>%
     fct_infreq() %>%
