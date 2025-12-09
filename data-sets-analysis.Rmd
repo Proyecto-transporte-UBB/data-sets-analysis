@@ -95,12 +95,15 @@ for(ko in key.objects[key.objects != "tracking.gps.df"]) {
   print(dt.sys)
   load.time.sys[[ko]] <- dt.sys
 }
-total.load.dt <- load.time.sys %>% sapply(., function(t){
-  (t %>% as.numeric()) * switch (t %>% units(),
-    "secs" = 1,
-    "mins" = 60,
-  )
-}) %>% sum()
+sum.time <- function(dt.list){
+  dt.list %>% sapply(., function(t){
+    (t %>% as.numeric()) * switch (t %>% units(),
+      "secs" = 1,
+      "mins" = 60,
+    )
+  }) %>% sum()
+}
+total.load.dt <- load.time.sys %>% sum.time()
 ```
 
 ```{r load.tracking.gps.df, include=FALSE, eval=knitr::is_html_output()}
@@ -326,13 +329,13 @@ for(folder in folders) {
   print(folder)
   print(dt.sys)
 }
-# Reading time: 428.22 s = 7 m + 8.22 s
+# Reading time: 7 m + 8.22 s
 start.sys <- Sys.time()
 tracking.gps.df <- tracking.gps %>% bind_rows()
 colnames(tracking.gps.df) <- tracking.cols
 end.sys <- Sys.time()
 binding.time <- end.sys - start.sys
-# Binding time: 300.63 s = 5 m + 0.63 s
+# Binding time: 5 m + 0.63 s
 start.sys <- Sys.time()
 tracking.gps.df$EVT_SERVICIO_ID <- tracking.gps.df$EVT_SERVICIO_ID %>% as.factor()
 tracking.gps.df$EVT_PPU <- tracking.gps.df$EVT_PPU %>% as.factor()
@@ -352,7 +355,7 @@ tracking.gps.df$EVT_SEÑAL[tracking.gps.df$EVT_GPS_DOP >= 5 & tracking.gps.df$EV
 tracking.gps.df$EVT_SEÑAL <- tracking.gps.df$EVT_SEÑAL %>% as.factor()
 end.sys <- Sys.time()
 modifying.time <- end.sys - start.sys
-# Modifying time: 1807.08 s = 30 m + 7.08 s
+# Modifying time: 30 m + 7.08 s
 options(future.globals.maxSize = 16 * 1024^3)
 shp.time <- list()
 tracking.gps.df.sf <- list()
@@ -388,7 +391,8 @@ for(folder in folders){
   print(folder)
   print(dt)
 }
-# Shapefile time:
+# Shapefile time: 4m + 3.76s
+shp.total.time <- shp.time %>% sum.time()
 ```
 
 ```{r getData1.51, eval=FALSE, include=FALSE}
@@ -514,7 +518,7 @@ _Características Específicas Destacables_
 
 ## DTPR API
 
-```{r getData1.52, eval=FALSE, include=FALSE}
+```{r getData1.6, eval=FALSE, include=FALSE}
 cities <- c(
   "Arica" = "arica",
   "Iquique" = "iquique",
@@ -532,8 +536,8 @@ cities <- c(
   "Valdivia" = "valdivia",
   "Osorno" = "osorno",
   "Puerto Montt" = "ptomontt",
-  "Castro" = "castro",
-  "Quellón" = "quellon",
+  #"Castro" = "castro",
+  #"Quellón" = "quellon",
   "Punta Arenas" = "punta-arenas"
 )
 
@@ -569,18 +573,49 @@ get.data.gtfs.rt <- function(city = "concepcion"){
   datetimes.utc <- timestamps %>% as.numeric() %>% as.POSIXct(origin = "1970-01-01", tz = "UTC")
   datetimes.utc %>% summary()
   n <- min(uuids %>% length(), trip.ids %>% length(), route.ids %>% length() / 5)
+  city.name <- cities[cities == city] %>% names()
   df <- data.frame(
     vehicle.uuid = if (uuids %>% length() >= n) uuids[1:n] else rep(NA, n),
     trip.id = if (trip.ids %>% length() >= n) trip.ids[1:n] else rep(NA, n),
     start.datetime = if (datetimes %>% length() >= n) datetimes[1:n] else rep(NA, n),
-    sample.route.id = if (route.ids %>% length() >= n) route.ids[1:n] else rep(NA, n),
     start.datetime.utc = if (datetimes.utc %>% length() >= n) datetimes.utc[1:n] else rep(NA, n),
+    sample.route.id = if (route.ids %>% length() >= n) route.ids[1:n] else rep(NA, n),
+    city = city.name,
     stringsAsFactors = F
   )
   return(df)
 }
 
-real.time.data <- "concepcion" %>% get.data.gtfs.rt()
+get.all.data.gtfs.rt <- function(print.time = T){
+  df.list <- list()
+  if(print.time) dt.list <- list()
+  for(city in cities){
+    if(print.time) start.sys <- Sys.time()
+    df <- city %>% get.data.gtfs.rt()
+    if(print.time) end.sys <- Sys.time()
+    city.name <- cities[cities == city] %>% names()
+    df.list[[city.name]] <- df
+    if(print.time){
+      dt.sys <- end.sys - start.sys
+      print(city.name)
+      print(dt.sys)
+      dt.list[[city.name]] <- dt.sys
+    }
+  }
+  grfs.df <- df.list %>% bind_rows()
+  grfs.df$city <- grfs.df$city %>% as.factor()
+  grfs.df$trip.id <- grfs.df$trip.id %>% as.factor()
+  grfs.df$sample.route.id <- grfs.df$sample.route.id %>% as.factor()
+  if(print.time) {
+    grfs.dt <- dt.list %>% sum.time()
+    print("Total Reading Time:")
+    print(grfs.dt)
+  }
+  return(grfs.df)
+}
+
+real.time.all.data <- get.all.data.gtfs.rt()
+real.time.all.data %>% summary() %>% cat()
 ```
 
 
@@ -1760,12 +1795,7 @@ for(folder in folders){
   print(folder)
   print(folder.dt.sys)
 }
-total.dt <- folder.time.list %>% sapply(., function(t){
-  (t %>% as.numeric()) * switch (t %>% units(),
-    "secs" = 1,
-    "mins" = 60,
-  )
-}) %>% sum()
+total.dt <- folder.time.list %>% sum.time()
 # Reading Time: 1h + 7m + 29.16s
 start.sys <- Sys.time()
 waze.routes.df <- routes.list %>% bind_rows()
@@ -1782,18 +1812,17 @@ waze.routes.df$leadAlert.externalImageId <- waze.routes.df$leadAlert.externalIma
 waze.routes.df$leadAlert.street <- waze.routes.df$leadAlert.street %>% as.factor()
 waze.routes.df$leadAlert.subType <- waze.routes.df$leadAlert.subType %>% as.factor()
 waze.routes.df$leadAlert.id <- waze.routes.df$leadAlert.id %>% as.factor()
-waze.routes.df$leadAlert.position.lat <- waze.routes.df$leadAlert.position %>% sapply(., function(p){
-  if(p %>% is.na()) {
-    return(NA)
-  }
-  str_split(p, " ")[[1]][1] %>% as.numeric()
-})
-waze.routes.df$leadAlert.position.lng <- waze.routes.df$leadAlert.position %>% sapply(., function(p){
-  if(p %>% is.na()) {
-    return(NA)
-  }
-  str_split(p, " ")[[1]][2] %>% as.numeric()
-})
+lat.lng <- function(n = 1){
+  waze.routes.df$leadAlert.position %>% sapply(., function(p){
+    if(p %>% is.na()) {
+      return(NA)
+    }
+    str_split(p, " ")[[1]][n] %>% as.numeric()
+  })
+}
+waze.routes.df$leadAlert.position.lat <- lat.lng(1)
+waze.routes.df$leadAlert.position.lng <- lat.lng(2)
+waze.routes.df <- waze.routes.df %>% select(-leadAlert.position)
 waze.routes.df$leadAlert.type <- waze.routes.df$leadAlert.type %>% as.factor()
 waze.routes.df$broadcasterId <- waze.routes.df$broadcasterId %>% as.factor()
 waze.routes.df$areaName <- waze.routes.df$areaName %>% as.factor()
@@ -1806,14 +1835,78 @@ modifying.time <- end.sys - start.sys
 waze.routes.df %>% summary()
 waze.routes <- waze.routes.df %>% distinct(id, date, file, .keep_all = T) %>% select(-x, -y, -point_index)
 waze.routes %>% summary()
-waze.routes.df.sf <- waze.routes.df %>% st_as_sf(
+waze.routes.df.short <- waze.routes.df %>%
+  rename(
+    alert_lat = leadAlert.position.lat,
+    alert_lng = leadAlert.position.lng,
+    alert_city = leadAlert.city,
+    alert_img = leadAlert.externalImageId,
+    alert_strt = leadAlert.street,
+    alert_sub = leadAlert.subType,
+    alert_id = leadAlert.id,
+    alert_type = leadAlert.type,
+    alert_com = leadAlert.numComments,
+    alert_thumbs = leadAlert.numThumbsUp,
+    alert_notthere = leadAlert.numNotThereReports,
+    date_str = date
+  )
+waze.routes.df.short$date_str <- waze.routes.df.short$date_str %>% as.character()
+waze.routes.df.sf <- waze.routes.df.short %>% st_as_sf(
   coords = c("x", "y"),
   crs = 4326
 )
 waze.routes.df.sf %>% st_write(.,
   "~/GitHub/data-sets-analysis/shapefiles/waze.routes.df.shp",
   driver = "ESRI Shapefile",
-  append = F
+  append = F,
+  delete_dsn = T
+)
+create.bbox.polygons <- function(df){
+  polygons.list <- list()
+  for (i in df %>% nrow() %>% seq_len()) {
+    minX <- df$minX[i]
+    minY <- df$minY[i]
+    maxX <- df$maxX[i]
+    maxY <- df$maxY[i]
+    if (c(minX, minY, maxX, maxY) %>% is.na() %>% any()) {
+      next
+    }
+    polygon.coords <- matrix(c(
+      minX, minY,
+      minX, maxY,
+      maxX, maxY,
+      maxX, minY,
+      minX, minY
+    ), ncol = 2, byrow = TRUE)
+    polygon <- polygon.coords %>% list() %>% st_polygon()
+    polygons.list[[i]] <- polygon
+  }
+  valid.rows <- !sapply(polygons.list, is.null)
+  df.valid <- df[valid.rows, ]
+  df.sf <- df.valid %>% st_sf(geometry = polygons.list[valid.rows] %>% st_sfc(crs = 4326)) %>% select(-minX, -minY, -maxX, -maxY)
+  return(df.sf)
+}
+waze.routes.polygons <- waze.routes %>% create.bbox.polygons() %>%
+  rename(
+    alert_lat = leadAlert.position.lat,
+    alert_lng = leadAlert.position.lng,
+    alert_city = leadAlert.city,
+    alert_img = leadAlert.externalImageId,
+    alert_strt = leadAlert.street,
+    alert_sub = leadAlert.subType,
+    alert_id = leadAlert.id,
+    alert_type = leadAlert.type,
+    alert_com = leadAlert.numComments,
+    alert_thumbs = leadAlert.numThumbsUp,
+    alert_notthere = leadAlert.numNotThereReports,
+    date_str = date
+  )
+waze.routes.polygons %>% st_write(
+  dsn = "~/GitHub/data-sets-analysis/shapefiles",
+  layer = "waze.routes",
+  driver = "ESRI Shapefile",
+  append = F,
+  delete_dsn = T
 )
 ```
 
