@@ -46,15 +46,17 @@ def detect_temporal_field(layer):
     if layer and isinstance(layer, QgsVectorLayer):
         temporal_properties = layer.temporalProperties()
         if temporal_properties.isActive():
-            mode = temporal_properties.mode()
-            if mode == QgsVectorLayerTemporalProperties.SingleField:
-                field_name = temporal_properties.field()
-                return field_name, None
-            elif mode == QgsVectorLayerTemporalProperties.SeparateFields:
-                start_field_name = temporal_properties.startField()
-                end_field_name = temporal_properties.endField()
-                return start_field_name, end_field_name
-    return None
+            try:
+                start_field = temporal_properties.startField()
+                end_field = temporal_properties.endField()
+                if start_field:
+                    if end_field:
+                        return start_field, end_field
+                    else:
+                        return start_field, None
+            except:
+                return None, None
+    return None, None
 
 def process_features_in_batches(
     layer,
@@ -416,8 +418,8 @@ def create_layer(
     )
 
 def main(
-    n,
-    m,
+    n = 0,
+    m = 0,
     fltr = lambda x: True,
     aggregate_function = lambda x: np.mean(x),
     time_gap_seconds = 5,
@@ -438,5 +440,3 @@ def main(
     if output_layer:
         QgsProject.instance().addMapLayer(output_layer)
         print(f"Layer '{output_layer.name()}' added to the project")
-
-main()
