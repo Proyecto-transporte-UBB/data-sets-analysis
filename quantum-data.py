@@ -1,7 +1,7 @@
 import numpy as np
-from qgis.core import QgsProject, QgsVectorLayer, QgsFeature, QgsGeometry, QgsPointXY, QgsField, QgsFields, QgsVectorFileWriter, QgsCoordinateReferenceSystem, QgsProcessingFeedback, QgsFeatureSink
+from qgis.core import QgsProject, QgsVectorLayer, QgsFeature, QgsGeometry, QgsPointXY, QgsField, QgsFields, QgsCoordinateReferenceSystem, QgsVectorLayerTemporalProperties
 from qgis.PyQt.QtCore import QVariant, QDateTime
-from datetime import datetime, timedelta
+from datetime import datetime
 import math
 
 METERS_PER_DEGREE_LAT = 111320
@@ -36,34 +36,28 @@ def transform_to_street_coords(lng_data, lat_data, headings):
     return x_along, y_across
 
 def detect_temporal_field(layer):
-    if not hasattr(layer, 'isTemporal'):
-        return None
-    if not layer.isTemporal():
-        return None
-    temporal_props = layer.temporalProperties()
-    if temporal_props.isActive():
-        mode = temporal_props.mode()
-        if mode == 1:
-            field = temporal_props.startField()
-            return field
-        elif mode == 2:
-            field = temporal_props.startField()
-            return field
-        elif mode == 3:
-            expression = temporal_props.startExpression()
-            import re
-            match = re.search(r'\"([^\"]+)\"', expression)
-            if match:
-                return match.group(1)
+    if layer and isinstance(layer, QgsVectorLayer):
+        temporal_properties = layer.temporalProperties()
+        if temporal_properties.isActive():
+            mode = temporal_properties.mode()
+            if mode == QgsVectorLayerTemporalProperties.SingleField:
+                field_name = temporal_properties.field()
+                return field_name, None
+            elif mode == QgsVectorLayerTemporalProperties.SeparateFields:
+                start_field_name = temporal_properties.startField()
+                end_field_name = temporal_properties.endField()
+                return start_field_name, end_field_name
     return None
 
-def process_features_in_batches(layer, time_field, value_field, batch_size=10000):
+def process_features_in_batches(layer, time_field, end_field, value_field, filter_func = None, batch_size = 10000):
     times = []
     lngs = []
     lats = []
     values = []
+    ends = []
     total_features = layer.featureCount()
     print(f"Total features to process: {total_features:,}")
+    filtered_count = 0
     for start_idx in range(0, total_features, batch_size):
         end_idx = min(start_idx + batch_size, total_features)
         print(f"Processing features {start_idx:,} to {end_idx:,}...")
@@ -74,6 +68,9 @@ def process_features_in_batches(layer, time_field, value_field, batch_size=10000
             elif i >= end_idx:
                 break
         for feature in features:
+            if filter_func and not filter_func(feature):
+                continue
+            filtered_count += 1
             geom = feature.geometry()
             if geom.isNull() or not geom.type() == 0:
                 continue
@@ -82,6 +79,7 @@ def process_features_in_batches(layer, time_field, value_field, batch_size=10000
             lats.append(point.y())
             if time_field:
                 time_val = feature[time_field]
+                end_val = feature[end_field] if end_field else None
                 if isinstance(time_val, (datetime, QDateTime)):
                     if isinstance(time_val, QDateTime):
                         time_val = time_val.toPyDateTime()
@@ -94,37 +92,66 @@ def process_features_in_batches(layer, time_field, value_field, batch_size=10000
                         try:
                             dt = datetime.fromisoformat(time_str)
                         except ValueError:
-                            for fmt in ['%Y-%m-%d %H:%M:%S', '%Y/%m/%d %H:%M:%S', 
-                                       '%d/%m/%Y %H:%M:%S', '%Y-%m-%dT%H:%M:%S']:
+                            for fmt in ['%Y-%m-%d %H:%M:%S', '%Y/%m/%d %H:%M:%S', '%d/%m/%Y %H:%M:%S', '%Y-%m-%dT%H:%M:%S']:
                                 try:
                                     dt = datetime.strptime(time_str, fmt)
                                     break
                                 except ValueError:
                                     continue
                             else:
-                                raise ValueError(f"No se pudo parsear el tiempo: {time_str}")
+                                raise ValueError(f"Could not parse time: {time_str}")
                         times.append(dt.timestamp())
                     except Exception as e:
                         print(f"Warning: Could not parse time value '{time_val}': {e}")
                         times.append(0)
+                if isinstance(end_val, (datetime, QDateTime)):
+                    if isinstance(end_val, QDateTime):
+                        end_val = end_val.toPyDateTime()
+                    ends.append(end_val.timestamp())
+                elif isinstance(end_val, (int, float)):
+                    ends.append(end_val)
+                else:
+                    try:
+                        end_str = str(end_val)
+                        try:
+                            dt = datetime.fromisoformat(end_str)
+                        except ValueError:
+                            for fmt in ['%Y-%m-%d %H:%M:%S', '%Y/%m/%d %H:%M:%S', '%d/%m/%Y %H:%M:%S', '%Y-%m-%dT%H:%M:%S']:
+                                try:
+                                    dt = datetime.strptime(end_str, fmt)
+                                    break
+                                except ValueError:
+                                    continue
+                            else:
+                                raise ValueError(f"Could not parse time: {time_str}")
+                        ends.append(dt.timestamp())
+                    except Exception as e:
+                        print(f"Warning: Could not parse time value '{time_val}': {e}")
+                        ends.append(0)
             else:
                 times.append(0)
+                ends.append(0)
             val = feature[value_field]
             if isinstance(val, QVariant):
                 val = val.value()
             values.append(float(val) if val is not None else 0.0)
         del features
-    return np.array(times), np.array(lngs), np.array(lats), np.array(values)
+    return np.array(times), np.array(lngs), np.array(lats), np.array(values), np.array(ends)
 
-def quantum_discretization_qgis(input_layer, value_field, time_gap_seconds = 5, space_gap_meters = 50, street_aligned = True, street_angle_tolerance = 30, aggregate_function = lambda x: np.mean(x)):
-    time_field = detect_temporal_field(input_layer)
+def quantum_discretization_qgis(input_layer, value_field, time_gap_seconds = 5, space_gap_meters = 50, street_aligned = True, street_angle_tolerance = 30, aggregate_function = lambda x: np.mean(x), filter_func = None):
+    time_field, end_field = detect_temporal_field(input_layer)
     if value_field not in [field.name() for field in input_layer.fields()]:
         raise ValueError(f"Value field '{value_field}' doesn't exist in the layer")
-    print(f"Starting quantum discretization...")
+    print("Starting quantum discretization...")
     print(f"Input layer: {input_layer.name()}")
     print(f"Value field: {value_field}")
-    print(f"Time field: {time_field if time_field else 'Not detected'}")
-    times, lngs, lats, values = process_features_in_batches(input_layer, time_field, value_field)
+    if time_field:
+        if not(end_field):
+            print(f"Time field: {time_field}")
+        else:
+            print(f"Start time field: {time_field}")
+            print(f"End time field: {end_field}")
+    times, lngs, lats, values, ends = process_features_in_batches(input_layer, time_field, end_field, value_field, filter_func)
     n = len(times)
     if n == 0:
         raise ValueError("No valid point features found in the layer")
@@ -197,7 +224,7 @@ def quantum_discretization_qgis(input_layer, value_field, time_gap_seconds = 5, 
             bin_combinations = np.column_stack([time_bin_indices, lat_bin_indices, lng_bin_indices])
         else:
             bin_combinations = np.column_stack([lat_bin_indices, lng_bin_indices])
-    print(f"Calculating unique combinations...")
+    print("Calculating unique combinations...")
     unique_combinations, inverse_indices = np.unique(bin_combinations, axis=0, return_inverse=True)
     print(f"Found {len(unique_combinations):,} unique combinations")
     result_times = []
@@ -279,7 +306,7 @@ def quantum_discretization_qgis(input_layer, value_field, time_gap_seconds = 5, 
     if output_features:
         output_layer.dataProvider().addFeatures(output_features)
     output_layer.updateExtents()
-    print(f"Quantum discretization completed successfully!")
+    print("Quantum discretization completed successfully!")
     print(f"Input features: {n:,}")
     print(f"Output features: {len(result_times):,}")
     print(f"Compression ratio: {n/len(result_times):.1f}:1")
@@ -320,15 +347,21 @@ def show_layer_fields(layer, prnt = False):
           print(f"{i + 1:3d}. {field.name():20} | Type: {field.typeName():15}")
     return field_names
 
-def excecute_functions(n, m):
+def create_layer(n, m, fltr = lambda x: True, time_gap_seconds = 5, space_gap_meters = 50, street_aligned = True, street_angle_tolerance = 30, aggregate_function = lambda x: np.mean(x)):
   if n < 1:
     get_layers(True)
-    return
+    return None
   input_layer = get_layers()[n - 1]
   if m < 1:
     show_layer_fields(input_layer, True)
-    return
+    return None
   value_field = show_layer_fields(input_layer)[m - 1]
-  return quantum_discretization_qgis(input_layer, value_field)
+  return quantum_discretization_qgis(input_layer, value_field, time_gap_seconds, space_gap_meters, street_aligned, street_angle_tolerance, aggregate_function, fltr)
 
-excecute_functions(3, 14)
+def main(n = 0, m = 0, fltr = lambda x: True, time_gap_seconds = 5, space_gap_meters = 50, street_aligned = True, street_angle_tolerance = 30, aggregate_function = lambda x: np.mean(x)):
+    output_layer = create_layer(n, m, fltr, time_gap_seconds, space_gap_meters, street_aligned, street_angle_tolerance, aggregate_function)
+    if output_layer:
+        QgsProject.instance().addMapLayer(output_layer)
+        print(f"Layer '{output_layer.name()}' added to the project")
+
+main()
