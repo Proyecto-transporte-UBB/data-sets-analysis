@@ -9,7 +9,10 @@ METERS_PER_DEGREE_LAT = 111320
 def meters_per_degree_lng(lat_deg):
     return METERS_PER_DEGREE_LAT * math.cos(math.radians(lat_deg))
 
-def calculate_street_headings(lng_data, lat_data):
+def calculate_street_headings(
+    lng_data,
+    lat_data
+):
     n = len(lng_data)
     headings = np.zeros(n)
     for i in range(1, n-1):
@@ -21,7 +24,11 @@ def calculate_street_headings(lng_data, lat_data):
         headings[-1] = headings[-2]
     return headings
 
-def transform_to_street_coords(lng_data, lat_data, headings):
+def transform_to_street_coords(
+    lng_data,
+    lat_data,
+    headings
+):
     n = len(lng_data)
     x_along = np.zeros(n)
     y_across = np.zeros(n)
@@ -49,7 +56,14 @@ def detect_temporal_field(layer):
                 return start_field_name, end_field_name
     return None
 
-def process_features_in_batches(layer, time_field, end_field, value_field, filter_func = None, batch_size = 10000):
+def process_features_in_batches(
+    layer,
+    time_field,
+    end_field,
+    value_field,
+    filter_func = None,
+    batch_size = 10000
+):
     times = []
     lngs = []
     lats = []
@@ -138,7 +152,16 @@ def process_features_in_batches(layer, time_field, end_field, value_field, filte
         del features
     return np.array(times), np.array(lngs), np.array(lats), np.array(values), np.array(ends)
 
-def quantum_discretization_qgis(input_layer, value_field, time_gap_seconds = 5, space_gap_meters = 50, street_aligned = True, street_angle_tolerance = 30, aggregate_function = lambda x: np.mean(x), filter_func = None):
+def quantum_discretization_qgis(
+        input_layer,
+        value_field,
+        time_gap_seconds = 5,
+        space_gap_meters = 50,
+        street_aligned = True,
+        street_angle_tolerance = 30,
+        aggregate_function = lambda x: np.mean(x),
+        filter_func = None
+    ):
     time_field, end_field = detect_temporal_field(input_layer)
     if value_field not in [field.name() for field in input_layer.fields()]:
         raise ValueError(f"Value field '{value_field}' doesn't exist in the layer")
@@ -151,7 +174,13 @@ def quantum_discretization_qgis(input_layer, value_field, time_gap_seconds = 5, 
         else:
             print(f"Start time field: {time_field}")
             print(f"End time field: {end_field}")
-    times, lngs, lats, values, ends = process_features_in_batches(input_layer, time_field, end_field, value_field, filter_func)
+    times, lngs, lats, values, ends = process_features_in_batches(
+        input_layer,
+        time_field,
+        end_field,
+        value_field,
+        filter_func
+    )
     n = len(times)
     if n == 0:
         raise ValueError("No valid point features found in the layer")
@@ -177,8 +206,15 @@ def quantum_discretization_qgis(input_layer, value_field, time_gap_seconds = 5, 
         time_bin_indices = np.clip(time_bin_indices, 0, len(time_bins) - 2)
     if street_aligned:
         print(f"Spatial discretization: Street-aligned with gap: {space_gap_meters} meters")
-        headings = calculate_street_headings(lngs, lats)
-        x_along, y_across = transform_to_street_coords(lngs, lats, headings)
+        headings = calculate_street_headings(
+            lngs,
+            lats
+        )
+        x_along, y_across = transform_to_street_coords(
+            lngs,
+            lats,
+            headings
+        )
         min_x_along = np.min(x_along)
         max_x_along = np.max(x_along)
         x_bins = np.arange(min_x_along, max_x_along + space_gap_meters, space_gap_meters)
@@ -318,9 +354,9 @@ def get_layers(prnt = False):
         if prnt: print("There's no layers in project.")
         return None
     if prnt:
-      print("=" * 60)
-      print(f"AVIABLE LAYERS ({len(layers)}):")
-      print("=" * 60)
+        print("=" * 60)
+        print(f"AVIABLE LAYERS ({len(layers)}):")
+        print("=" * 60)
     for i, (layer_id, layer) in enumerate(layers.items(), 1):
         geom_info = ""
         if isinstance(layer, QgsVectorLayer):
@@ -334,32 +370,71 @@ def get_layers(prnt = False):
         if prnt: print(f"{i:3d}. {layer.name():30} {geom_info:15} | Features: {layer.featureCount() if hasattr(layer, 'featureCount') else 'N/A'}")
     return list(layers.values())
 
-def show_layer_fields(layer, prnt = False):
+def show_layer_fields(
+  layer,
+  prnt = False
+):
     if not layer or not isinstance(layer, QgsVectorLayer):
         if prnt: print("Invalid or not vectorial layer.")
         return []
     fields = layer.fields()
     field_names = [field.name() for field in fields]
     if prnt:
-      print(f"\Aviable fields in '{layer.name()}':")
-      print("-" * 40)
-      for i, field in enumerate(fields):
-          print(f"{i + 1:3d}. {field.name():20} | Type: {field.typeName():15}")
+          print(f"\Aviable fields in '{layer.name()}':")
+          print("-" * 40)
+          for i, field in enumerate(fields):
+              print(f"{i + 1:3d}. {field.name():20} | Type: {field.typeName():15}")
     return field_names
 
-def create_layer(n, m, fltr = lambda x: True, time_gap_seconds = 5, space_gap_meters = 50, street_aligned = True, street_angle_tolerance = 30, aggregate_function = lambda x: np.mean(x)):
-  if n < 1:
-    get_layers(True)
-    return None
-  input_layer = get_layers()[n - 1]
-  if m < 1:
-    show_layer_fields(input_layer, True)
-    return None
-  value_field = show_layer_fields(input_layer)[m - 1]
-  return quantum_discretization_qgis(input_layer, value_field, time_gap_seconds, space_gap_meters, street_aligned, street_angle_tolerance, aggregate_function, fltr)
+def create_layer(
+  n,
+  m,
+  fltr = lambda x: True,
+  aggregate_function = lambda x: np.mean(x),
+  time_gap_seconds = 5,
+  space_gap_meters = 50,
+  street_aligned = True,
+  street_angle_tolerance = 30
+):
+    if n < 1:
+        get_layers(True)
+        return None
+    input_layer = get_layers()[n - 1]
+    if m < 1:
+        show_layer_fields(input_layer, True)
+        return None
+    value_field = show_layer_fields(input_layer)[m - 1]
+    return quantum_discretization_qgis(
+        input_layer,
+        value_field,
+        time_gap_seconds,
+        space_gap_meters,
+        street_aligned,
+        street_angle_tolerance,
+        aggregate_function,
+        fltr
+    )
 
-def main(n = 0, m = 0, fltr = lambda x: True, time_gap_seconds = 5, space_gap_meters = 50, street_aligned = True, street_angle_tolerance = 30, aggregate_function = lambda x: np.mean(x)):
-    output_layer = create_layer(n, m, fltr, time_gap_seconds, space_gap_meters, street_aligned, street_angle_tolerance, aggregate_function)
+def main(
+    n,
+    m,
+    fltr = lambda x: True,
+    aggregate_function = lambda x: np.mean(x),
+    time_gap_seconds = 5,
+    space_gap_meters = 50,
+    street_aligned = True,
+    street_angle_tolerance = 30
+):
+    output_layer = create_layer(
+        n,
+        m,
+        fltr,
+        aggregate_function,
+        time_gap_seconds,
+        space_gap_meters,
+        street_aligned,
+        street_angle_tolerance
+    )
     if output_layer:
         QgsProject.instance().addMapLayer(output_layer)
         print(f"Layer '{output_layer.name()}' added to the project")
