@@ -106,9 +106,10 @@ sum.time <- function(dt.list){
 total.load.dt <- load.time.sys %>% sum.time()
 ```
 
-```{r load.tracking.gps.df, include=FALSE, eval=knitr::is_html_output()}
+```{r load.tracking.gps.df, include=FALSE}
 ml <- 8 * 1024^3
 ms <- 6 * 1024^3
+Sys.setenv("R_MAX_VSIZE" = "8Gb")
 memory.limit(size = ml)
 options(future.globals.maxSize = ms)
 gc()
@@ -201,9 +202,23 @@ El análisis comprende 6268 registros de siniestros de buses interurbanos ocurri
 
 ### Optimizaciones Realizadas
 
+**Paso a paso**
+
+- "Fecha" se convirtió en la concatenación de "Fecha" y "Hora" y se convierte en POSIXct con formato "%d/%m/%Y %H:%M:%S"
+- Se elimina la columna "Hora"
+- "Región" se convierte en factor
+- "Comuna" se convierte en factor
+- "Tipo Accidente" se convierte en factor
+- "Tipo (CONASET)" se convierte en factor
+- "Zona" se convierte en factor
+- "Ubicación Relativa" se convierte en factor
+- "Causa (CONASET)" se convierte en factor
+- "Causa Accidente" se convierte en factor
+
 - **Unificación temporal**: Fusión de las columnas "Fecha" y "Hora" en un único campo datetime
 - **Normalización de datos**: Conversión de 8 variables de texto a tipo factor para mejorar el procesamiento estadístico:
-    - "Región" -"Comuna"
+    - "Región"
+    - "Comuna"
     - "Tipo Accidente"
     - "Tipo (CONASET)"
     - "Zona"
@@ -284,6 +299,18 @@ El dataset contiene 1726 registros de telemetría GPS capturados durante un per�
 - Múltiples campos numéricos presentados sin separador decimal
 
 ### Procesamiento de Datos Realizado
+
+**Paso a paso**
+
+- "date" se convirtió en la concatenación de "date" y "hora" y se convierte en POSIXct con formato "%d/%m/%Y %H:%M"
+- Se elimina la columna "hora"
+- "GPS (2D speed) [m/s]" se trató de poner al mismo orden de magnitud de "GPS (3D speed) [m/s]" mediante la siguiente fórmula:
+
+$$\text{reduce.2d.speed}(n,m)\equiv n\times10^{\lfloor\log_{10}m+1\rfloor-\lfloor\log_{10}n+1\rfloor}$$
+
+- "GPS (Lat.) [deg]" y "GPS (Long.) [deg]" se ajustaron para tener 2 dígitos enteros mediante la siguiente fórmula:
+
+$$\text{reduce.coords}(n)\equiv n\times10^{1-\lfloor\log_{10}|n|\rfloor}$$
 
 **Normalización Temporal**
 
@@ -449,12 +476,43 @@ _Velocidades Operacionales_
 - Velocidad promedio: 21.69 km/h
 - Velocidad mediana: 19 km/h
 
+```{r tracking.gps.df.density, echo=FALSE, warning=FALSE}
+tracking.gps.df %>% 
+  ggplot() +
+  geom_histogram(aes(x = EVT_GPS_VEL), bins = 50, alpha = 0.7) +
+  ggtitle("Distribución de velocidades") +
+  xlab("Velocidad (km/h)") +
+  ylab("Frecuencia")
+```
+
+
 _Estados del Sistema_
 
 - Motor encendido (1): 21619957 registros
 - Motor apagado (0): 63899 registros
 
 ### Procesamiento y Normalización de Datos
+
+**Paso a paso**
+
+- Se lee la carpeta
+- Se crea la columna "EVT_CARPETA" con el nombre de la carpeta
+- Se unifican los datasets en uno
+- "EVT_SERVICIO_ID" se convierte en factor
+- "EVT_PPU" se convierte en factor
+- "EVT_GPS_TIME_CHILE_STR" se convierte en POSIXct con formato "%d/%m/%Y %H:%M:%S" y zona horaria "America/Santiago"
+- "EVT_GPS_TIME_UTC_0" se convierte en POSIXct con formato "%d/%m/%Y %H:%M:%S"
+- En "Y_EVT_GPS_LAT", se reemplaza "," por "." y se convierte en numérico
+- En "X_EVT_GPS_LON", se reemplaza "," por "." y se convierte en numérico
+- En "EVT_DISTANCIA_RECORRIDA (Km)", se reemplaza "," por "." y se convierte en numérico
+- En "EVT_DISTACIA_A_SERVICIO", se reemplaza "," por "." y se convierte en numérico
+- "EVT_CARPETA" se convierte en factor
+- Se crea la columna "EVT_SEÑAL" a partir de los valores de la columna "EVT_GPS_DOP":
+  - `Excelente`: $EVT_GPS_DOP < 1$
+  - `Muy Buena`: $1 \leq EVT_GPS_DOP < 2$
+  - `Buena`: $2 \leq EVT_GPS_DOP < 5$
+  - `Regular`: $5 \leq EVT_GPS_DOP \leq 10$
+  - `Mala`: $EVT_GPS_DOP > 10$
 
 **Estructuración Multi-carpeta**
 
@@ -499,8 +557,8 @@ _Optimización de Tipos de Datos_
 
 _Frecuencia de Reporte_
 
-- **Típico**: 1:00-1:03 minutos entre registros por vehículo
-- **Variaciones**: UN52_265 muestra intervalos más irregulares (3.5s - 1min)
+- **Típico**: 1:00-1:03 minutos entre registros por vehículo (mediana, separado por patente)
+- **Variaciones**: UN52_265 muestra intervalos más irregulares (3.5s - 1min) (mediana, separado por patente)
 - **Consistencia**: Mayoría mantiene intervalos estables
 
 _Distribución por Unidad_
@@ -512,11 +570,9 @@ _Distribución por Unidad_
 _Características Específicas Destacables_
 
 - **UN13_247**: Operación exclusiva de ruta "13GS"
-- **UN18_254**: Frecuencia muy consistente (1:03-1:03.5 min)
-- **UN22_257**: Mayor variabilidad en intervalos (59s - 22:31 min)
+- **UN18_254**: Frecuencia muy consistente (1:03-1:03.5 min) (mediana, separado por patente)
+- **UN22_257**: Mayor variabilidad en intervalos (59s - 22:31 min) (mediana, separado por patente)
 - **UNB0_277**: Única unidad con datos en septiembre
-
-## DTPR API
 
 ```{r getData1.6, eval=FALSE, include=FALSE}
 cities <- c(
@@ -578,7 +634,6 @@ get.data.gtfs.rt <- function(city = "concepcion"){
     vehicle.uuid = if (uuids %>% length() >= n) uuids[1:n] else rep(NA, n),
     trip.id = if (trip.ids %>% length() >= n) trip.ids[1:n] else rep(NA, n),
     start.datetime = if (datetimes %>% length() >= n) datetimes[1:n] else rep(NA, n),
-    start.datetime.utc = if (datetimes.utc %>% length() >= n) datetimes.utc[1:n] else rep(NA, n),
     sample.route.id = if (route.ids %>% length() >= n) route.ids[1:n] else rep(NA, n),
     city = city.name,
     stringsAsFactors = F
@@ -614,8 +669,28 @@ get.all.data.gtfs.rt <- function(print.time = T){
   return(grfs.df)
 }
 
-real.time.all.data <- get.all.data.gtfs.rt()
-real.time.all.data %>% summary() %>% cat()
+save.data.gtfs.rt <- function(city = "concepcion"){
+  now <- Sys.time()
+  real.time <- get.data.gtfs.rt()
+  file.name <- paste(city, now %>% as.character() %>% str_replace_all(" ", "_") %>% str_replace_all(":", "."), "rds", sep = ".")
+  file.path. <- paste("~/GitHub/data-sets-analysis/rds-files/DTPR API", file.name, sep = "/")
+  real.time %>% saveRDS(file = file.path.)
+}
+
+run.continuously <- function(
+  interval.minutes = 30,
+  city = "concepcion"
+) {
+  while(T) {
+    tryCatch({
+      city %>% save.data.gtfs.rt()
+      cat("GTFS data saved at", Sys.time() %>% as.character(), "\n")
+    }, error = function(e) {
+      cat("Error:", e$message, "at", Sys.time() %>% as.character(), "\n")
+    })
+    Sys.sleep(interval.minutes * 60)
+  }
+}
 ```
 
 
@@ -679,6 +754,15 @@ El dataset comprende 5739 registros de accidentes de tránsito documentados por 
     - Concepción (193 accidentes)
     - Temuco (175 accidentes)
     - Arica (150 accidentes)
+- **KM**:
+    - **Rango**: Entre 0 y 112000 km
+    - **Media**: 1629 km
+    - **Mediana**: 312 km
+    - **Nulos**: 3210 registros
+- **PARTE**:
+    - **Rango**: Entre $1 y 4157
+    - **Media**: $491.4
+    - **Mediana**: $282
 
 ### Clasificación de Accidentes
 
@@ -692,6 +776,21 @@ El dataset comprende 5739 registros de accidentes de tránsito documentados por 
     - Vía férrea: 3 casos
 
 ### Procesamiento y Normalización de Datos
+
+**Paso a paso**
+
+- "FECHA" se convirtió en la concatenación de "FECHA" y "HORA" y se convierte en POSIXct con formato "%d/%m/%Y %H:%M"
+- Se elimina la columna "HORA"
+- "ZONA" se convierte en factor
+- "COMUNA" se convierte en factor
+- "TIPO" se convierte en factor
+- "CAUSA" se convierte en factor
+- "SECTOR" se convierte en factor
+- "KM" se convierte en numérico
+- "PARTE" se convierte en numérico
+- "TRIBUNAL" se convierte en factor
+- Se crea la columna "MACRO TIPO" con el valor de "TIPO", pero unificando los valores de "CHOQUE", "CHOQUE FRONTAL", "CHOQUE LATERAL"y "CHOQUE POSTERIOR" como "CHOQUE" y "COLISION", "COLISION FRONTAL", "COLISION LATERAL", "COLISION PERPENDICULAR", "COLISION POR ALCANCE" como "COLISION"
+- "MACRO TIPO" se convierte en factor
 
 **Optimizaciones Aplicadas**
 
@@ -841,9 +940,9 @@ radio.accidents.df$coord[!(radio.accidents.df$lat %>% is.na())] <- radio.acciden
 radio.accidents.df <- radio.accidents.df %>% select(-c(lat, `tipo de incidente`, ...7, ...13, sheet.name, original.row))
 radio.accidents.df$dir[!(radio.accidents.df$...12 %>% is.na()) & (radio.accidents.df$dir %>% is.na())] <- radio.accidents.df$...12[!(radio.accidents.df$...12 %>% is.na()) & (radio.accidents.df$dir %>% is.na())]
 radio.accidents.df <- radio.accidents.df %>% select(-...12)
-radio.accidents.df$`Reporte completo? (SI/NO)`[(radio.accidents.df$`Reporte completo? (SI/NO)` %in% c("is", "si", "SI", "su")) %>% which()] = "SI"
-radio.accidents.df$`Reporte completo? (SI/NO)`[(radio.accidents.df$`Reporte completo? (SI/NO)` %in% c("no", "NO")) %>% which()] = "NO"
-radio.accidents.df$`Reporte completo? (SI/NO)`[(radio.accidents.df$`Reporte completo? (SI/NO)` == "-") %>% which()] = NA
+radio.accidents.df$`Reporte completo? (SI/NO)`[(radio.accidents.df$`Reporte completo? (SI/NO)` %in% c("is", "si", "SI", "su")) %>% which()] <- "SI"
+radio.accidents.df$`Reporte completo? (SI/NO)`[(radio.accidents.df$`Reporte completo? (SI/NO)` %in% c("no", "NO")) %>% which()] <- "NO"
+radio.accidents.df$`Reporte completo? (SI/NO)`[(radio.accidents.df$`Reporte completo? (SI/NO)` == "-") %>% which()] <- NA
 radio.accidents.df$`es incidente de tráfico? (si/no)`[(radio.accidents.df$`es incidente de tráfico? (si/no)` %in% c("si", "SI")) %>% which()] <- "SI"
 radio.accidents.df$`es incidente de tráfico? (si/no)`[(radio.accidents.df$`es incidente de tráfico? (si/no)` %in% c("no", "NO")) %>% which()] <- "NO"
 radio.accidents.df$dir[radio.accidents.df$dir %in% c("-", "n/a", "n/A")] <- NA
@@ -894,7 +993,7 @@ El dataset contiene 312 registros de incidentes de tráfico reportados a través
 
 ### Período de Registro
 
-- **Duración**: 15 de julio al 20 de agosto (año no especificado)
+- **Duración**: 15 de julio al 20 de agosto de 2024
 - **Cobertura temporal**: 37 días de monitoreo continuo
 
 ### Clasificación de Incidentes
@@ -932,14 +1031,46 @@ El dataset contiene 312 registros de incidentes de tráfico reportados a través
 - Bidireccional (S-N, N-S): 1 caso
 - No especificado: 163 casos
 
-### Aspectos Requieren Clarificación
-
-**Información Crítica Faltante**
-
-- **Año de referencia**: No especificado en los datos originales
-- **Categorías direccionales**: Necesidad de confirmar si "N-S, S-N" y "S-N, N-S" representan categorías distintas o requieren unificación
-
 ### Procesamiento y Normalización de Datos
+
+**Paso a paso**
+
+- Se lee la hoja
+- Se lee el color de la columna "tipo de incidente"
+- Se crea la columna "fecha" con el nombre de la hoja
+- "#ID" se convierte en numérico
+- "Hora" se convierte en POSIXct con formato "%H:%M"
+- Se unen los datasets en uno
+- Se crea la columna "sheet.name" con el nombre de las hojas
+- Se crea la columna "original.row" con el número de la fila original
+- Se crea la columna "color" con el código del color de la columna "tipo de incidente"
+- Se eliminan las filas en las que "coord" o "Reporte completo? (SI/NO)" es nulo
+- Se eliminan las columnas "lat", "tipo de incidente", "...7", "...13", "sheet.name", "original.row"
+- "dir" toma el valor de "...12" cuando "...12" no es nulo y "dir" es nulo
+- Se elimina la columna "...12"
+- En "Reporte completo? (SI/NO)", los valores "is", "si", "SI" y "su" se unifican como "SI", los valores "no" y "NO", como "NO" y "-" se considera nulo
+- En "es incidente de tráfico? (si/no)", los valores "si" y "SI" se unifican como "SI" y los valores "no" y "NO", como "NO"
+- En "dir", los valores "e-o" y "E-O" se unifican como "E-O", "o-e" y "O-E", como "O-E", "n-s", "n.s" y "N-S", como "N-S", "s-n" y "S-N" como "S-N", "n-s. s-n", "n-s.s-n" y "N-S, S-N", como "N-S, S-N", "s-n.n-s" y "S-N, N-S", como "S-N, N-S" y "-", "n/a" y "n/A" se consideran nulos
+- "Reporte completo? (SI/NO)" se convierte en factor
+- "es incidente de tráfico? (si/no)" se convierte en factor
+- "dir" se convierte en factor
+- "color" se convierte en factor
+- Se crea la columna "Tipo de incidente" a partir de "color":
+  - "Congestión" cuando es nulo
+  - "Intervenciones de Emergencia" cuando es <font color="FF00B0F0">FF00B0F0</font>
+  - "Congestión" cuando es <font color="FF00FFFF">FF00FFFF</font>
+  - "Accidente de tránsito" cuando es <font color="FFFF0000">FFFF0000</font>
+  - "Obstrucciones en la vía" cuando es <font color="FFFF00FF">FFFF00FF</font>
+  - "Problema Infraestructura de control de tránsito" cuando es <font color="FFFF6600">FFFF6600</font>
+  - "Condición de tráfico" cuando es <font color="FFFFC000">FFFFC000</font>
+  - "Congestión" cuando es <font color="FFFFFF00">FFFFFF00</font>
+  - "Otros" cuando es <font color="FF00B050">FF00B050</font>
+- Se elimina la columna "color"
+- Cuando "Hora" es nulo, toma el valor de la fila anterior
+- "coord" se separa en "lat" y "lng", separado por ",\\s*" y se convierten en numéricos
+- Se eliminan las filas en las que "lat" es nulo
+- "Hora" se convirtió en la concatenación de "fecha" y "hora" y se convierte en POSIXct con el formato "%Y-%m-%d %H:%M"
+
 
 **Extracción y Estructuración**
 
@@ -1065,6 +1196,23 @@ El dataset contiene 338 mediciones de velocidad vehicular capturadas en el parad
 
 ### Procesamiento y Normalización de Datos
 
+**Paso a paso**
+
+- Se lee la hoja
+- Se crea la columna "dirección" con el nombre de la hoja
+- La columna "Lugar (dirección)" se unen en un único valor que se arrastra hacia todas las filas de la hoja
+- Se unen los datasets
+- Se eliminan las columnas "...5", "...6", "...7", "...8", "...9", "...10", "...11", "...12" y "...13"
+- Se eliminan las filas en las que "Velocidad [km/hr]" es nulo
+- Las filas donde "Hora" es nulo toman el valor de la fila anterior
+- La columna "Hora" se convierte en la concatenación entre "2024-06-25" y "Hora" y se convierte en un POSIXct con formato "%Y-%m-%d %H:%M:%S"
+- En la columna "Comentario", los valores "auto, doblo a Lo Plaza", "Auto, doblo a Lo Plaza" y "Auto, gira a Lo Plaza" se unifican como "Auto, dobló a Lo Plaza", los valores "camion" y "Camion", como "Camión" y "micro" y "Micro", como "Micro"
+- "Comentario" se convierte en factor
+- "dirección" se convierte en factor
+- "Lugar (dirección)" se convierte en factor
+- Se crea la columna "Vehículo" que toma el valor de la columna "Comentario" si su valor es "Camión", "Micro", "MOTO" o "retroexcavadora" y "Auto" en otro caso
+- "Vehículo" se convierte en factor
+
 **Estructuración Multi-hoja**
 
 - **Organización por dirección**: Cada hoja representa una dirección de flujo (Concepción->Hualqui / Hualqui->Concepción)
@@ -1171,7 +1319,7 @@ El dataset contiene 432 mediciones de velocidad vehicular capturadas en el cruce
 
 ### Análisis de Velocidades
 
-- **Rango de velocidades**: 5 a 23 km/h
+- **Rango de velocidades**: 5 a 53 km/h
 - **Velocidad promedio**: 28.87 km/h
 - **Velocidad mediana**: 29 km/h
 - **Distribución**: Concentrada en velocidades bajas-medias, típicas de tráfico urbano congestionado
@@ -1198,6 +1346,21 @@ El dataset contiene 432 mediciones de velocidad vehicular capturadas en el cruce
 - **Motocicletas**: Registros categorizados separadamente
 
 ### Procesamiento y Normalización de Datos
+
+**Paso a paso**
+
+- Se lee la hoja
+- En la columna "Hora", se cambian las "," por ":" (ej: "8,15" -> "8:15")
+- Las filas donde "Hora" es nulo toman el valor de la fila anterior
+- La columna "Hora" se convierte en la concatenación entre "2024-06-25" y "Hora" y se convierte en un POSIXct con formato "%Y-%m-%d %H:%M:%S"
+- Se crea la columna "dirección" con el nombre de la hoja
+- La columna "Lugar (dirección)" se unen en un único valor que se arrastra hacia todas las filas de la hoja
+- Se unen los datasets
+- Se eliminan las filas en las que "Velocidad.[km/hr]" es nulo
+- En la columna "Comentario", los valores "llega a cola", "llegan a cola", "llegan a cola, aprox 4 vehiculos" y "llegan a cola formada antes de medir" se unifican como "Llega a cola", los valores "llegan juntos", "llegan juntos ", "llegan juntos, cola aprox 8 a 10 autos" y "llegan juntos, generan cola", como "Llegan juntos", los valores "micro" y "Micro", como "Micro" y los valores "moto" y "Moto", como "Moto"
+- "Comentario" se convierte en factor
+- "Lugar (dirección)" se convierte en factor
+- "dirección" se convierte en factor
 
 **Estrategia de Extracción Multi-hoja**:
 
@@ -1306,6 +1469,14 @@ El dataset contiene 1000 eventos registrados por sistemas GPS vehiculares, captu
 
 ### Procesamiento y Normalización de Datos
 
+**Paso a paso**
+
+- Se eliminan las columnas "ubicacion_" y "velocidad_" debido a que todos sus valores son nulos
+- "fecha_auto" se convierte en un POSIXct con formato "%Y-%m-%d %H:%M:%S"
+- "fecha_gps_" se convierte en un POSIXct con formato "%Y-%m-%d %H:%M:%S"
+- "evento_" se convierte en factor
+- "direccion_" se convierte en factor
+
 **Corrección de Formato de Archivo**
 
 - **Problema original**: Formato CSV con delimitadores inconsistentes y caracteres de escape
@@ -1408,6 +1579,19 @@ El inventario documenta 71 ubicaciones de cámaras de vigilancia y sus respectiv
 
 ### Procesamiento y Normalización de Datos
 
+**Paso a paso**
+
+- Las columnas "MARCA", "MODELO" y "NÚMERO DE SERIE" estaban duplicadas, por lo que se les agregó "DE LA CÁMARA" y "DEL CODIFICADOR DE VIDEO" para distinguirlos
+- "COMUNA" se convierte en factor
+- "ESTADO" se convierte en factor
+- "TIPO DE ENLACE" se convierte en factor
+- "PROVEEDOR" se convierte en factor
+- "MARCA DE LA CÁMARA" se convierte en factor
+- "MODELO DE LA CÁMARA" se convierte en factor
+- "MARCA DEL CODIFICADOR DE VIDEO" se convierte en factor
+- "MODELO DEL CODIFICADOR DE VIDEO" se convierte en factor
+- "REGIÓN" se convierte en factor
+
 **Corrección de Estructura de Columnas**:
 
 - **Problema original**: Columnas duplicadas "MARCA", "MODELO" y "NÚMERO DE SERIE" para cámara y codificador
@@ -1508,6 +1692,16 @@ El dataset comprende 281759 alertas de tráfico generadas por usuarios de Waze, 
 
 ### Procesamiento y Normalización de Datos
 
+**Paso a paso**
+
+- La columna "Location" se separa en "lng" y "lat" mediante los regex `"(?<=Point\\()-?\\d+\\.?\\d*"` y `"-?\\d+\\.?\\d*(?=\\)$)"`, respectivamente
+- Se elimina la columna "Location"
+- En la columna "Date", se reemplazan los valores "ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov" y "dic" por "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov" y "dec", respectivamente
+- "Country" se convierte en factor
+- "City" se convierte en factor
+- "Type" se convierte en factor
+- "Subtype" se convierte en factor
+
 **Transformación de Coordenadas Geográficas**
 
 - **Problema original**: Campo "Location" en formato WKT (Well-Known Text): `Point(lng lat)`
@@ -1585,6 +1779,14 @@ El dataset contiene 281981 registros de accidentes de tránsito, proporcionando 
 - **Distribución**: Sesgada hacia valores bajos-medios de la escala
 
 ### Procesamiento y Normalización de Datos
+
+**Paso a paso**
+
+- La columna "Location" se separa en "lng" y "lat" mediante los regex `"(?<=Point\\()-?\\d+\\.?\\d*"` y `"-?\\d+\\.?\\d*(?=\\)$)"`, respectivamente
+- Se elimina la columna "Location"
+- En la columna "Date", se reemplazan los valores "ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov" y "dic" por "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov" y "dec", respectivamente
+- "Country" se convierte en factor
+- "City" se convierte en factor
 
 **Transformación de Georreferenciación**
 
@@ -1675,6 +1877,14 @@ El dataset contiene 13502 registros de irregularidades de tráfico documentadas 
 
 ### Procesamiento y Normalización de Datos
 
+**Paso a paso**
+
+- En la columna "Date", se reemplazan los valores "ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov" y "dic" por "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov" y "dec", respectivamente
+- "Country" se convierte en factor
+- "City" se convierte en factor
+- "Street" se convierte en factor
+- "Cause" se convierte en factor
+
 **Estandarización Temporal**
 
 - **Formato original**: Fechas con nomenclatura de meses en español
@@ -1751,7 +1961,7 @@ for(folder in folders){
             row$x <- route$line[[i]]$x
             row$y <- route$line[[i]]$y
             row$point_index <- i
-            row$total_points <- length(route$line)
+            row$total_points <- route$line %>% length()
             return(row %>% as.data.frame(stringsAsFactors = F))
           })
         } else {
@@ -1796,12 +2006,12 @@ for(folder in folders){
   print(folder.dt.sys)
 }
 total.dt <- folder.time.list %>% sum.time()
-# Reading Time: 1h + 7m + 29.16s
+# Reading Time: 2h + 31m + 41.63s
 start.sys <- Sys.time()
 waze.routes.df <- routes.list %>% bind_rows()
 end.sys <- Sys.time()
 binding.time <- end.sys - start.sys
-# Binding Time: 1.67s
+# Binding Time: 3.78s
 start.sys <- Sys.time()
 waze.routes.df$toName <- waze.routes.df$toName %>% as.factor()
 waze.routes.df$name <- waze.routes.df$name %>% as.factor()
@@ -1829,9 +2039,11 @@ waze.routes.df$areaName <- waze.routes.df$areaName %>% as.factor()
 waze.routes.df$date <- waze.routes.df$date %>% as.POSIXct(format = "%d-%m-%Y")
 waze.routes.df$subfolder <- waze.routes.df$subfolder %>% as.factor()
 waze.routes.df$file <- waze.routes.df$file %>% as.factor()
+waze.routes.df$updateTime <- (waze.routes.df$updateTime / 1000) %>% as.POSIXct(origin = "1970-01-01", tz = "UTC")
+waze.routes.df$weekday <- waze.routes.df$updateTime %>% weekdays() %>% as.factor()
 end.sys <- Sys.time()
 modifying.time <- end.sys - start.sys
-# Modifying Time: 1m + 9.94s
+# Modifying Time: 2m + 41.69s
 waze.routes.df %>% summary()
 waze.routes <- waze.routes.df %>% distinct(id, date, file, .keep_all = T) %>% select(-x, -y, -point_index)
 waze.routes %>% summary()
@@ -1908,97 +2120,191 @@ waze.routes.polygons %>% st_write(
   append = F,
   delete_dsn = T
 )
+
+# Mapa de calor (Velocidad, tramo x hora)
+## Datos de Carrera y Pedro Aguirre Cerda
+## Martes y miércoles, respectivamente
+waze.routes.df %>% summary()
+waze.routes.heatmap <- waze.routes.df[
+  waze.routes.df$weekday %in% c("martes", "miércoles") &
+  (
+    grepl("Av. Los Carrera", waze.routes.df$name) |
+    grepl("Av. Pedro Aguirre Cerda", waze.routes.df$name)
+  ),
+]
+waze.routes.heatmap$hour <- waze.routes.heatmap$updateTime %>% hour()
+waze.routes.heatmap$placeName <- NA
+for(n in c(waze.routes.heatmap$toName %>% levels(), waze.routes.heatmap$fromName %>% levels())){
+  waze.routes.heatmap$placeName[grepl(n, waze.routes.heatmap$name)] <- n
+}
+waze.routes.heatmap$placeName <- waze.routes.heatmap$placeName %>% as.factor()
+waze.routes.heatmap$dirName <- NA
+for(n in c("O.P", "P.O")){
+  waze.routes.heatmap$dirName[grepl(n, waze.routes.heatmap$name)] <- n
+}
+waze.routes.heatmap$dirName <- waze.routes.heatmap$dirName %>% as.factor()
+waze.routes.heatmap$placeName %>% summary()
+
+display.heat.map = function(placeName = "Av. Los Carrera", dirName = "O.P") {
+  waze.routes.heatmap[waze.routes.heatmap$placeName == placeName & waze.routes.heatmap$dirName == dirName,] %>%
+    group_by(name, hour) %>%
+    summarise(speed = mean(speed, na.rm = T)) %>%
+    ungroup() %>% 
+    ggplot() +
+    geom_tile(aes(
+      x = name,
+      y = hour,
+      fill = speed
+    )) +
+    scale_fill_gradientn(
+      colors = c(
+        "red",
+        "orange",
+        "yellow",
+        "lightgreen",
+        "darkgreen"
+      )
+    ) +
+    labs(title = paste("Mapa de calor en", placeName, "en dirección", dirName))
+}
+
+for(placeName in waze.routes.heatmap$placeName %>% levels()){
+  for(dirName in waze.routes.heatmap$dirName %>% levels()){
+    display.heat.map(placeName, dirName) %>% print()
+  }
+}
 ```
 
-El sistema procesó 178752 registros de datos de rutas provenientes de la API de Waze, consolidando información de navegación y alertas de tráfico durante un período de 9 días.
+El sistema procesó 491736 registros de datos de rutas provenientes de la API de Waze, consolidando información de navegación y alertas de tráfico durante un período de 21 días.
 
 ### Metadatos de Procesamiento
 
-- **Tiempo de lectura**: 1 hora, 7 minutos, 29.16 segundos
-- **Tiempo de unión**: 1.67 segundos
-- **Tiempo de transformación**: 1 minuto, 9.94 segundos
-- **Total de procesamiento**: 1 hora, 8 minutos, 40.77 segundos
+- **Tiempo de lectura**: 2 horas, 31 minutos, 41.63 segundos 2h + 31m + 41.63s
+- **Tiempo de unión**: 3.78 segundos 3.78s
+- **Tiempo de transformación**: 2 minuto, 41.69 segundos 2m + 41.69s
+- **Total de procesamiento**: 2 horas, 34 minutos, 27.10 segundos
 
 ### Período de Monitoreo
 
-- **Fecha inicial**: 24 de noviembre de 2025
-- **Fecha final**: 2 de diciembre de 2025
-- **Duración**: 9 días completos
+- **Fecha inicial**: 24 de noviembre de 2025 a las 15:31:51
+- **Fecha final**: 15 de diciembre de 2025 a las 20:12:08
+- **Duración**: 21 días completos
 - **Estructura temporal**: Datos organizados por fecha en estructura de carpetas
 
 ### Características del Dataset Consolidado
 
 **Volumen y Estructura**
 
-- **Registros totales**: 1025696 puntos de ruta
-- **Rutas únicas (agrupadas)**: 178752 rutas
+- **Registros totales**: 2821625 puntos de ruta
+- **Rutas únicas (agrupadas)**: 491736 rutas
 - **Nivel de detalle**: Desagregación punto por punto de trayectos
 
 **Análisis de Orígenes y Destinos**
 
 *Principales Destinos* (`toName`)
 
-- "Av. Los Carrera": 114912 referencias
-- "Av. Pedro Aguirre Cerda": 25536 referencias
-- "Ruta 160": 12768 referencias
+- "Av. Los Carrera": 316116 referencias
+- "Av. Pedro Aguirre Cerda": 70248 referencias
+- "Ruta 160": 35124 referencias
 
 *Principales Orígenes* (`fromName`)
 
-- "Av. Los Carrera": 119168 referencias
-- "Av. Pedro Aguirre Cerda": 27664 referencias
-- "Ruta 160": 10640 referencias
+- "Av. Los Carrera": 327824 referencias
+- "Av. Pedro Aguirre Cerda": 76102 referencias
+- "Ruta 160": 29270 referencias
 
 **Métricas de Desempeño de Rutas**
 
 *Tiempos de Viaje*
 
-- **Tiempo histórico (`historicTime`)**: 1-131 unidades (media: 20.9, mediana: 11)
-- **Tiempo estimado (`time`)**: 2-148 unidades (media: 19.7, mediana: 13)
+- **Tiempo histórico** (`historicTime`): 1-344 unidades (media: 20.74, mediana: 13)
+- **Tiempo estimado** (`time`): 0-952 unidades (media: 26.96, mediana: 16)
 - **Unidades por confirmar**: Minutos o segundos (requiere validación)
 
 *Distancias y Velocidades*
-- **Longitud de ruta (`length`)**: 16-1257 unidades (media: 175.4, mediana: 126)
-- **Velocidad calculada (`speed`)**: 0.5-24 unidades (media: 8.0, mediana: 7.8)
+- **Longitud de ruta** (`length`): 0-1257 unidades (media: 175.4, mediana: 126)
+- **Velocidad calculada** (`speed`): 0.52-24 unidades (media: 8.06, mediana: 7.89)
 - **Relación distancia/tiempo**: Consistente con tráfico urbano congestionado
 
 **Sistema de Alertas Waze**
 
 *Distribución de Alertas*
 
-- **Total de alertas registradas**: 89
+- **Total de alertas registradas**: 209
 
 *Tipología de Alertas* (`leadAlert.type`)
 
-**Peligros (HAZARD) - 58 casos**:
+**Peligros (HAZARD) - 107 casos**:
 
-- `HAZARD_ON_ROAD`: 27 casos
-- `HAZARD_ON_ROAD_OBJECT`: 22 casos
+- `HAZARD_ON_ROAD`: 58 casos
+- `HAZARD_ON_ROAD_OBJECT`: 29 casos
+- `HAZARD_ON_ROAD_TRAFFIC_LIGHT_FAULT`: 9 casos
 - `HAZARD_ON_ROAD_CONSTRUCTION`: 6 casos
-- `HAZARD_ON_ROAD_CAR_STOPPED`: 3 casos
+- `HAZARD_ON_ROAD_CAR_STOPPED`: 4 casos
 
-**Accidentes (ACCIDENT) - 31 casos**:
+**Accidentes (ACCIDENT) - 94 casos**:
 
-- `NO_SUBTYPE`: 26 casos
-- `ACCIDENT_MAJOR`: 5 casos
+- `NO_SUBTYPE`: 88 casos
+- `ACCIDENT_MAJOR`: 6 casos
 
 *Interacción de Usuarios con Alertas*
 
-- **Comentarios** (`numComments`): 0-37 (media: 7.9, mediana: 4)
-- **Me gusta** (`numThumbsUp`): 0-37 (media: 7.5, mediana: 4)
-- **Reportes de inexistencia** (`numNotThereReports`): 0-1
+- **Comentarios** (`numComments`): 0-48 (media: 8.0, mediana: 3)
+- **Me gusta** (`numThumbsUp`): 0-46 (media: 7.5, mediana: 3)
+- **Reportes de inexistencia** (`numNotThereReports`): 0 (120 casos)  y 1 (89 casos)
 
 *Contexto Geográfico de Alertas*
 
 - **Calles más reportadas**:
-  - "Ruta 160": 63 alertas
-  - "Av. Pedro Aguirre Cerda": 25 alertas
-  - "Av. Los Carrera Poniente": 1 alerta
+  - "Ruta 160": 132 alertas
+  - "Av. Pedro Aguirre Cerda": 65 alertas
+  - "Av. Los Carrera Poniente": 8 alertas
+  - "Av. Los Carrera": 4 alertas
 - **Ciudades involucradas**:
-  - "San Pedro de la Paz": 25 alertas
-  - "Concepción": 1 alerta
-  - Sin especificar: 63 alertas
+  - "San Pedro de la Paz": 65 alertas
+  - "Concepción": 12 alertas
+  - Sin especificar: 132 alertas
 
 ### Procesamiento y Normalización de Datos
+
+**Paso a paso**
+
+- Se leen las carpetas
+- En cada carpeta, se leen las sub-carpetas
+- En cada sub-capreta, se leen los archivos .json
+- En cada archivo, se leen las rutas
+- Por cada ruta, se crea la fila con todos sus valores, excepto "line", "bbox", "subRoutes", "leadAlert" y "alternateRoute"
+- Si "leadAlert" no es nulo, las columnas "leadAlert.numComments", "leadAlert.city", "leadAlert.externalImageId", "leadAlert.numThumbsUp", "leadAlert.street", "leadAlert.subType", "leadAlert.id", "leadAlert.position", "leadAlert.type" y "leadAlert.numNotThereReports" toman los valores de "numComments", "city", "externalImageId", "numThumbsUp", "street", "subType", "id", "position", "type" y "numNotThereReports", respectivamente de "leadAlert"
+- Si "bbox" no es nulo, las columnas "minY", "minX", "maxY" y "maxX" toman los valores de "minY", "minX", "maxY" y "maxX" de "bbox", respectivamente
+- Si "line" no es nulo, se clona la fila una vez por cada elemento en "line", por cada punto, "x" e "y" toman el valor de "x" e "y", respectivamente del elemento de "line", "point_index", la posición del punto en "line" y "total_points", la cantidad de puntos en "line"
+- Se unen las filas en un data.frame
+- Se crea la columna "speed" con el valor de "lenght" / "time"
+- Se crea la columna "broadcasterId" con el valor de "broadcasterId" del archivo
+- Se crea la columna "areaName" con el valor de "areaName" del archivo
+- Se crea la columna "isMetric" con el valor de "isMetric" del archivo
+- Se crea la columna "updateTime" con el valor de "updateTime" del archivo
+- Se crea la columna "date" con el nombre de la carpeta
+- Se crea la columna "subfolder" con el nombre de la sub-carpeta
+- Se crea la columna "file" con el nombre del archivo quitando la cadena ".json", separándolo en una lista de cadenas con el caracter "_" y tomando en último elemento (ej: "1763409379301_2025-12-01_000004.267298.json" -> "000004.267298")
+- Se unen las filas en un solo data.frame
+- "toName" se convierte en factor
+- "name" se convierte en factor
+- "fromName" se convierte en factor
+- "type" se convierte en factor
+- "leadAlert.city" se convierte en factor
+- "leadAlert.externalImageId" se convierte en factor
+- "leadAlert.street" se convierte en factor
+- "leadAlert.subType" se convierte en factor
+- "leadAlert.position" se divide en "leadAlert.position.lat" y "leadAlert.position.lng" separándolo por el caracter " "
+- Se elimina la columna "leadAlert.position"
+- "leadAlert.type" se convierte en factor
+- "broadcasterId" se convierte en factor
+- "areaName" se convierte en factor
+- "date" se convierte en POSIXct con formato "%d-%m-%Y"
+- "subfolder" se convierte en factor
+- "file" se convierte en factor
+- "updateTime" se divide por 1000 y se convierte en POSIXct con origen en "1970-01-01" y zona horaria "UTC"
+- Se crea la columna "weekday" siendo el día de la semana de "updateTime" y se convierte en factor
 
 **Estrategia de Extracción Multi-nivel**
 
