@@ -58,6 +58,15 @@ library(viridis)
 
 ```{r key.objects, include=FALSE}
 key.objects <- c("interurban.bus.accidents", "gh026929", "police.accidents", "radio.accidents.df", "chiguayante.speed.df", "vega.speed.df", "gps.events", "biobio.inventary", "trafic.alerts", "accidents", "waze.data", "meters.per.degree.lat", "meters.per.degree.lng", "quantum.data", "tracking.gps.df", "waze.routes", "waze.routes.df")
+
+sum.time <- function(dt.list){
+  dt.list %>% sapply(., function(t){
+    (t %>% as.numeric()) * switch (t %>% units(),
+      "secs" = 1,
+      "mins" = 60,
+    )
+  }) %>% sum()
+}
 ```
 
 ```{r save, eval=FALSE, include=FALSE}
@@ -67,8 +76,8 @@ gc()
 memory.limit()
 memory.size()
 save.image("~/GitHub/data-sets-analysis/.RData")
-save.time.sys <- ls()
-for(ko in key.objects) {
+save.time.sys <- list()
+for(ko in key.objects[key.objects != "tracking.gps.df"]) {
   start.sys <- Sys.time()
   file.name <- paste(ko, "rds", sep = ".")
   file.path. <- paste("~/GitHub/data-sets-analysis/rds-files", file.name, sep = "/")
@@ -79,6 +88,7 @@ for(ko in key.objects) {
   print(dt.sys)
   save.time.sys[[ko]] <- dt.sys
 }
+total.save.dt <- save.time.sys %>% sum.time()
 ```
 
 
@@ -94,14 +104,6 @@ for(ko in key.objects[key.objects != "tracking.gps.df"]) {
   print(ko)
   print(dt.sys)
   load.time.sys[[ko]] <- dt.sys
-}
-sum.time <- function(dt.list){
-  dt.list %>% sapply(., function(t){
-    (t %>% as.numeric()) * switch (t %>% units(),
-      "secs" = 1,
-      "mins" = 60,
-    )
-  }) %>% sum()
 }
 total.load.dt <- load.time.sys %>% sum.time()
 ```
@@ -2063,7 +2065,9 @@ waze.routes.df.short <- waze.routes.df %>%
     date_str = date
   )
 waze.routes.df.short$date_str <- waze.routes.df.short$date_str %>% as.character()
-waze.routes.df.sf <- waze.routes.df.short %>% st_as_sf(
+waze.routes.df.clean <- waze.routes.df.short %>%
+  filter(!(x %>% is.na()), !(y %>% is.na()))
+waze.routes.df.sf <- waze.routes.df.clean %>% st_as_sf(
   coords = c("x", "y"),
   crs = 4326
 )
@@ -2145,11 +2149,25 @@ for(n in c("O.P", "P.O")){
 waze.routes.heatmap$dirName <- waze.routes.heatmap$dirName %>% as.factor()
 waze.routes.heatmap$placeName %>% summary()
 
-display.heat.map = function(placeName = "Av. Los Carrera", dirName = "O.P") {
-  waze.routes.heatmap[waze.routes.heatmap$placeName == placeName & waze.routes.heatmap$dirName == dirName,] %>%
-    group_by(name, hour) %>%
-    summarise(speed = mean(speed, na.rm = T)) %>%
-    ungroup() %>% 
+waze.routes.heatmap$name[waze.routes.heatmap$placeName == "Av. Los Carrera" & waze.routes.heatmap$dirName == "O.P"] %>% as.character() %>% as.factor() %>% levels()
+
+waze.routes.heatmap$name.number <- waze.routes.heatmap$name %>% sapply(., function(n) str_split(n, "_")[[1]][1]) %>% as.numeric()
+
+waze.routes.heatmap$name.number %>% summary()
+
+display.heat.map = function(placeName = "Av. Los Carrera", dirName = "O.P", filter = T) {
+  filtered.data <- waze.routes.heatmap[waze.routes.heatmap$placeName == placeName & waze.routes.heatmap$dirName == dirName & filter,]
+  name.order <- filtered.data %>%
+    select(name, name.number) %>%
+    distinct() %>%
+    arrange(name.number) %>%
+    pull(name)
+  plot.data <- filtered.data %>%
+    group_by(name, hour, name.number) %>%
+    summarise(speed = speed %>% mean(na.rm = T)) %>%
+    ungroup() %>%
+    mutate(name = name %>% factor(levels = name.order))
+  plot.data %>% 
     ggplot() +
     geom_tile(aes(
       x = name,
@@ -2165,12 +2183,13 @@ display.heat.map = function(placeName = "Av. Los Carrera", dirName = "O.P") {
         "darkgreen"
       )
     ) +
-    labs(title = paste("Mapa de calor en", placeName, "en dirección", dirName))
+    labs(title = paste("Mapa de calor en", placeName, "en dirección", dirName), x = "Tramo", y = "Hora", fill = "Velocidad") +
+    theme(axis.text.x = element_text(angle = 270, hjust = 1, vjust = 0.5))
 }
 
 for(placeName in waze.routes.heatmap$placeName %>% levels()){
   for(dirName in waze.routes.heatmap$dirName %>% levels()){
-    display.heat.map(placeName, dirName) %>% print()
+    display.heat.map(placeName, dirName, waze.routes.heatmap$date >= "2025-12-03") %>% print()
   }
 }
 ```
