@@ -409,9 +409,8 @@ El dataset contiene 1726 registros de telemetría GPS capturados durante un per�
 ```{r gh026929.time, echo=FALSE, warning=FALSE}
 differences <- (gh026929$date - c(NA, gh026929$date[1:(gh026929 %>% nrow() - 1)])) %>% as.numeric()
 #differences %>% summary()
-gh026929 %>% ggplot() +
-  geom_density(aes(x = date)) +
-  labs(title = "Frecuencia por minuto")
+ggplot() +
+  geom_histogram(aes(x = differences))
 ```
 
 
@@ -604,7 +603,6 @@ tracking.gps.df %>% ggplot() +
   geom_histogram(aes(x = differences)) +
   geom_vline(aes(xintercept = diff.mean, colour = "promedio")) +
   geom_vline(aes(xintercept = diff.mediam, colour = "mediana")) +
-  labs(title = "Frecuencia") +
   scale_x_log10() +
   scale_y_log10() +
   scale_color_manual(
@@ -635,8 +633,9 @@ tracking.gps.df[tracking.gps.df$EVT_SERVICIO_ID %in% (tracking.gps.df %>%
   geom_bar(aes(
     y = EVT_SERVICIO_ID %>% fct_infreq() %>% fct_rev(),
     fill = EVT_SERVICIO_ID
-  )) +
-  labs(y = "Ruta", fill = NA, title = "10 rutas más frecuentes")
+  ),
+  show.legend = F) +
+  labs(y = "Ruta", title = "10 rutas más frecuentes")
 ```
 
 **Distribución Direccional**
@@ -644,6 +643,19 @@ tracking.gps.df[tracking.gps.df$EVT_SERVICIO_ID %in% (tracking.gps.df %>%
 - **Sentido ida (0)**: 10809559 registros
 - **Sentido vuelta (1)**: 10671146 registros
 - **Sentido indeterminado (-1)**: 203151 registros
+
+```{r tracking.gps.df.direction, echo=FALSE, warning=FALSE}
+tracking.gps.df[tracking.gps.df$EVT_SERVICIO_ID %in% (tracking.gps.df %>%
+  count(EVT_SERVICIO_ID) %>%
+  slice_max(n, n = 10) %>%
+  pull(EVT_SERVICIO_ID)),] %>%
+  ggplot() +
+  geom_bar(aes(
+    y = EVT_SERVICIO_ID %>% fct_infreq() %>% fct_rev(),
+    fill = EVT_SENTIDO %>% as.factor()
+  )) +
+  labs(y = "Ruta", fill = "Sentido", title = "10 rutas más frecuentes")
+```
 
 **Métricas de Desempeño Técnico**
 
@@ -654,19 +666,23 @@ _Calidad de Señal GPS_
 - Regular: 592320 registros
 - Mala: 2200379 registros
 
+```{r tracking.gps.df.signal, echo=FALSE, warning=FALSE}
+tracking.gps.df %>% ggplot() +
+  geom_histogram(aes(x = EVT_GPS_DOP, fill = EVT_SEÑAL)) +
+  scale_x_log10() +
+  scale_y_log10()
+```
+
 _Velocidades Operacionales_
 
 - Rango: 0 - 193 km/h
 - Velocidad promedio: 21.69 km/h
 - Velocidad mediana: 19 km/h
 
-```{r tracking.gps.df.density, echo=FALSE, warning=FALSE}
+```{r tracking.gps.df.speed, echo=FALSE, warning=FALSE}
 tracking.gps.df %>% 
   ggplot() +
-  geom_histogram(aes(x = EVT_GPS_VEL), bins = 50, alpha = 0.7) +
-  ggtitle("Distribución de velocidades") +
-  xlab("Velocidad (km/h)") +
-  ylab("Frecuencia")
+  geom_histogram(aes(x = EVT_GPS_VEL))
 ```
 
 
@@ -674,6 +690,15 @@ _Estados del Sistema_
 
 - Motor encendido (1): 21619957 registros
 - Motor apagado (0): 63899 registros
+
+```{r tracking.gps.df.states, echo=FALSE, warning=FALSE}
+tracking.gps.df[tracking.gps.df$EVT_ESTADO_MOTOR_GPS == 0,] %>%
+  ggplot() +
+  geom_bar(aes(
+    y = EVT_CARPETA %>% fct_infreq() %>% fct_rev()
+  )) +
+  labs(y = "Carpeta", title = "Registros con motor apagado")
+```
 
 ### Procesamiento y Normalización de Datos
 
@@ -2397,11 +2422,11 @@ El sistema procesó 766668 registros de datos de rutas provenientes de la API de
 
 ### Granularidad Temporal
 
-- **Diferencia mínima**: 1 minuto, 51.2 segundos
-- **Diferencia máxima**: 1 día, 23 horas, 25 minutos, 2.3 segundos
-- **Diferencia promedio**: 5 minutos, 33 segundos
-- **Diferencia mediana**: 5 minutos
-- **Desviación standard**: 30 minutos, 34.06 segundos
+- Diferencia Mínima: 1 minuto, 51.2 segundos
+- Diferencia máxima: 1 día, 23 horas, 25 minutos, 2.3 segundos
+- Diferencia Media: 5 minutos, 33 segundos
+- Diferencia Mediana: 5 minutos
+- Desviación Standard: 30 minutos, 34.06 segundos
 
 ```{r waze.routes.time, echo=FALSE, warning=FALSE}
 waze.routes.times <- waze.routes[waze.routes$updateTime %>% order(),] %>% distinct(updateTime)
