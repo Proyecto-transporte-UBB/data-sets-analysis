@@ -350,17 +350,6 @@ for(sev in severity$severity %>% levels()){
 - "Causa (CONASET)" se convierte en factor
 - "Causa Accidente" se convierte en factor
 
-- **Unificación temporal**: Fusión de las columnas "Fecha" y "Hora" en un único campo datetime
-- **Normalización de datos**: Conversión de 8 variables de texto a tipo factor para mejorar el procesamiento estadístico:
-    - "Región"
-    - "Comuna"
-    - "Tipo Accidente"
-    - "Tipo (CONASET)"
-    - "Zona"
-    - "Ubicación Relativa"
-    - "Causa (CONASET)"
-    - "Causa Accidente"
-
 ## GH026929.xlsx
 
 ```{r getData1, eval=FALSE, include=FALSE}
@@ -484,30 +473,6 @@ $$\text{reduce.2d.speed}(n,m)\equiv n\times10^{\lfloor\log_{10}m+1\rfloor-\lfloo
 
 $$\text{reduce.coords}(n)\equiv n\times10^{1-\lfloor\log_{10}|n|\rfloor}$$
 
-**Normalización Temporal**
-
-- Fusión de columnas `date` y `hora` en un campo datetime unificado
-
-**Corrección de Coordenadas Geográficas**
-
-Función aplicada:
-
-$$\text{reduce.coords}(n)\equiv n\times10^{1-\lfloor\log_{10}|n|\rfloor}$$
-
-*Objetivo*: Ajuste de coordenadas chilenas mediante reposicionamiento del punto decimal basado en el orden de magnitud
-
-**Normalización de Velocidad 2D**
-
-Función aplicada:
-
-$$\text{reduce.2d.speed}(n,m)\equiv n\times10^{\lfloor\log_{10}m+1\rfloor-\lfloor\log_{10}n+1\rfloor}$$
-
-*Objetivo*: Alineación de órdenes de magnitud entre velocidades 2D y 3D mediante escalado decimal dinámico
-
-### Observaciones Técnicas
-
-Los ajustes aplicados sugieren que el sistema de captura original podría presentar inconsistencias en el formato de salida numérico, requiriendo post-procesamiento para una interpretación correcta de las mediciones GPS.
-
 ## DTPR
 
 ```{r getData1.5, eval=FALSE, include=FALSE}
@@ -614,13 +579,13 @@ El dataset consolidado comprende 21683856 registros de telemetría GPS provenien
 - **Duración**: 31 días completos + 5 minutos
 - **Cobertura temporal**: Mes completo de agosto 2025
 
-### Granularidad temporal
+### Granularidad temporal (separado por EVT_PPU)
 
 - Diferencia Mínima: 0 (al mismo tiempo)
-- Diferencia Máxima: 2241756 segundos
-- Diferencia Media: 411 segundos
-- Diferencia Mediana: 61 segundos
-- Desviación Standard: $5.42\times10^{-4}$ segundos
+- Diferencia Máxima: 25 días, 22 horas, 42 minutos, 36 segundos
+- Diferencia Media: 6 minutos, 51 segundos
+- Diferencia Mediana: 1 minuto, 1 segundo
+- Desviación Standard: 2 horas, 24 minutos, 17.19 segundos
 
 ```{r tracking.gps.df.time, echo=FALSE, warning=FALSE}
 differences <- tracking.gps.df %>%
@@ -633,10 +598,19 @@ differences <- tracking.gps.df %>%
   ) %>%
   pull(diff)
 #differences %>% summary()
+diff.mean <- differences %>% mean(na.rm = T)
+diff.mediam <- differences %>% median(na.rm = T)
 tracking.gps.df %>% ggplot() +
-  geom_density(aes(x = differences, colour = EVT_CARPETA)) +
+  geom_histogram(aes(x = differences)) +
+  geom_vline(aes(xintercept = diff.mean, colour = "promedio")) +
+  geom_vline(aes(xintercept = diff.mediam, colour = "mediana")) +
   labs(title = "Frecuencia") +
-  scale_x_log10()
+  scale_x_log10() +
+  scale_y_log10() +
+  scale_color_manual(
+    values = c("promedio" = "red", "mediana" = "green"),
+    breaks = c("promedio", "mediana")
+  )
 ```
 
 ### Características Operacionales del Sistema
@@ -718,48 +692,11 @@ _Estados del Sistema_
 - En "EVT_DISTACIA_A_SERVICIO", se reemplaza "," por "." y se convierte en numérico
 - "EVT_CARPETA" se convierte en factor
 - Se crea la columna "EVT_SEÑAL" a partir de los valores de la columna "EVT_GPS_DOP":
-  - `Excelente`: $EVT_GPS_DOP < 1$
-  - `Muy Buena`: $1 \leq EVT_GPS_DOP < 2$
-  - `Buena`: $2 \leq EVT_GPS_DOP < 5$
-  - `Regular`: $5 \leq EVT_GPS_DOP \leq 10$
-  - `Mala`: $EVT_GPS_DOP > 10$
-
-**Estructuración Multi-carpeta**
-
-- **Estrategia**: Procesamiento paralelo de 31 unidades operativas
-- **Identificación**: Incorporación de metadatos de carpeta origen
-- **Consolidación**: Unificación en dataset coherente
-
-**Transformaciones Aplicadas**
-
-_Normalización Temporal_
-
-- **Timestamp Chile**: Conversión a formato POSIXct
-- **Timestamp UTC**: Sincronización con estándar internacional
-- **Zona horaria**: Conservación de huso local (America/Santiago)
-
-_Clasificación de Calidad de Señal_
-_Escala DOP (Dilution of Precision)_:
-
-- `Excelente`: $DOP < 1$
-- `Muy Buena`: $1 \leq DOP < 2$
-- `Buena`: $2 \leq DOP < 5$
-- `Regular`: $5 \leq DOP \leq 10$
-- `Mala`: $DOP > 10$
-
-_Optimización de Tipos de Datos_
-
-- **Coordenadas**: Conversión a numérico con estandarización decimal
-- **Identificadores**: Transformación a factores para análisis categórico
-- **Distancias**: Normalización de formatos numéricos
-
-**Variables Críticas Procesadas**
-
-- `EVT_GPS_TIME_CHILE_STR`, `EVT_GPS_TIME_UTC_0` -> POSIXct
-- `EVT_SERVICIO_ID`, `EVT_PPU` -> Factor
-- `Y_EVT_GPS_LAT`, `X_EVT_GPS_LON` -> Numérico
-- `EVT_DISTANCIA_RECORRIDA` -> Numérico
-- `EVT_SEÑAL` -> Factor (derivado de DOP)
+  - `Excelente`: $\text{EVT_GPS_DOP} < 1$
+  - `Muy Buena`: $1 \leq \text{EVT_GPS_DOP} < 2$
+  - `Buena`: $2 \leq \text{EVT_GPS_DOP} < 5$
+  - `Regular`: $5 \leq \text{EVT_GPS_DOP} \leq 10$
+  - `Mala`: $\text{EVT_GPS_DOP} > 10$
 
 ### Análisis por Unidad Operativa
 
@@ -954,25 +891,66 @@ El dataset comprende 5739 registros de accidentes de tránsito documentados por 
 - **Cobertura temporal**: 1 al 30 de marzo de 2025 (30 días)
 - **Registros diarios promedio**: aproximadamente 191 accidentes
 
+### Granularidad Temporal
+
+```{r police.accidents.time, echo=FALSE, warning=FALSE}
+differences <- differences <- (police.accidents$FECHA - c(NA, police.accidents$FECHA[1:(police.accidents %>% nrow() - 1)])) %>% as.numeric() / 3600
+#differences %>% summary()
+ggplot() +
+  geom_bar(aes(x = differences %>% floor())) +
+  scale_y_log10() +
+  labs(x = "Diferencia de tiempo entre registros (horas)")
+```
+
 ### Distribución Geográfica
 
 - **Regiones con mayor siniestralidad**:
     - Región Metropolitana (1513 casos)
     - Región del Biobío (699 casos)
     - Región del Maule (574 casos)
+
+```{r police.accidents.regions, echo=FALSE, warning=FALSE}
+police.accidents %>% ggplot() +
+  geom_bar(aes(y = ZONA %>% fct_infreq() %>% fct_rev())) +
+  labs(y = "ZONA")
+```
+
 - **Comunas más afectadas**:
     - Concepción (193 accidentes)
     - Temuco (175 accidentes)
     - Arica (150 accidentes)
+
+```{r police.accidents.cities, echo=FALSE, warning=FALSE}
+police.accidents[police.accidents$COMUNA %in% (police.accidents %>%
+  count(COMUNA) %>%
+  slice_max(n, n = 10) %>%
+  pull(COMUNA)),] %>% ggplot() +
+  geom_bar(aes(y = COMUNA %>% fct_infreq() %>% fct_rev(), fill = ZONA)) +
+  labs(y = "COMUNA")
+```
+
 - **KM**:
     - **Rango**: Entre 0 y 112000 km
     - **Media**: 1629 km
     - **Mediana**: 312 km
     - **Nulos**: 3210 registros
+
+```{r police.accidents.km, echo=FALSE, warning=FALSE}
+police.accidents %>% ggplot() +
+  geom_density(aes(x = KM)) +
+  scale_x_log10()
+```
+
 - **PARTE**:
     - **Rango**: Entre $1 y 4157
     - **Media**: $491.4
     - **Mediana**: $282
+
+```{r police.accidents.pay, echo=FALSE, warning=FALSE}
+police.accidents %>% ggplot() +
+  geom_density(aes(x = PARTE, colour = `MACRO TIPO`)) +
+  scale_x_log10()
+```
 
 ### Clasificación de Accidentes
 
@@ -980,10 +958,23 @@ El dataset comprende 5739 registros de accidentes de tránsito documentados por 
     - Colisión: 2,936 casos
     - Choque: 1,801 casos
     - Atropello: 461 casos
+
+```{r police.accidents.types, echo=FALSE, warning=FALSE}
+police.accidents %>% ggplot() +
+  geom_bar(aes(y = `MACRO TIPO` %>% fct_infreq() %>% fct_rev(), fill = ZONA %>% fct_infreq())) +
+  labs(y = "MACRO TIPO", fill = "ZONA")
+```
+
 - **Distribución por sector**:
     - Urbano: 4,432 casos
     - Rural: 1,304 casos
     - Vía férrea: 3 casos
+
+```{r police.accidents.sectors, echo=FALSE, warning=FALSE}
+police.accidents %>% ggplot() +
+  geom_bar(aes(y = SECTOR %>% fct_infreq() %>% fct_rev(), fill = ZONA %>% fct_infreq())) +
+  labs(y = "SECTOR", fill = "ZONA")
+```
 
 ### Procesamiento y Normalización de Datos
 
@@ -1001,24 +992,6 @@ El dataset comprende 5739 registros de accidentes de tránsito documentados por 
 - "TRIBUNAL" se convierte en factor
 - Se crea la columna "MACRO TIPO" con el valor de "TIPO", pero unificando los valores de "CHOQUE", "CHOQUE FRONTAL", "CHOQUE LATERAL"y "CHOQUE POSTERIOR" como "CHOQUE" y "COLISION", "COLISION FRONTAL", "COLISION LATERAL", "COLISION PERPENDICULAR", "COLISION POR ALCANCE" como "COLISION"
 - "MACRO TIPO" se convierte en factor
-
-**Optimizaciones Aplicadas**
-
-- **Unificación temporal**: Fusión de campos "FECHA" y "HORA" en timestamp único
-- **Normalización de tipos de datos**:
-    - **Conversión a factor**: ZONA, COMUNA, TIPO, CAUSA, SECTOR, TRIBUNAL
-    - **Conversión a numérico**: KM (donde aplicable) y PARTE
-
-**Creación de Categorías Agrupadas**
-
-- **Variable "MACRO TIPO"**:
-    - **CHOQUE**: Agrupa "CHOQUE", "CHOQUE FRONTAL", "CHOQUE LATERAL", "CHOQUE POSTERIOR"
-    - **COLISION**: Agrupa "COLISION", "COLISION FRONTAL", "COLISION LATERAL", "COLISION PERPENDICULAR", "COLISION POR ALCANCE"
-    - **Conserva valores originales** para categorías no agrupables
-
-### Observaciones Relevantes
-
-La concentración temporal del dataset (solo 30 días) permite un análisis detallado de patrones de siniestralidad en un período específico, aunque limita la identificación de tendencias estacionales. La predominancia de accidentes en zonas urbanas refleja la distribución poblacional y de tráfico vehicular del país.
 
 ## Incidentes de tráfico radio.xlsx
 
@@ -1206,27 +1179,53 @@ El dataset contiene 312 registros de incidentes de tráfico reportados a través
 - **Duración**: 15 de julio al 20 de agosto de 2024
 - **Cobertura temporal**: 37 días de monitoreo continuo
 
+### Granularidad Temporal
+
+```{r radio.accidents.df.time, echo=FALSE, warning=FALSE}
+radio.accidents.df.sorted <- radio.accidents.df[radio.accidents.df$Hora %>% order(),]
+differences <- (radio.accidents.df.sorted$Hora - c(NA, radio.accidents.df.sorted$Hora[1:(radio.accidents.df.sorted %>% nrow() - 1)])) %>% as.numeric()
+#differences %>% summary()
+radio.accidents.df %>% ggplot() +
+  geom_density(aes(x = Hora, colour = `Tipo de incidente`)) +
+  scale_colour_discrete(labels = label_wrap_gen(width = 15))
+```
+
 ### Clasificación de Incidentes
 
 - **Naturaleza del incidente**:
     - **Incidentes de tráfico**: 263 casos
     - **No incidentes de tráfico**: 1 caso
     - **No especificado**: 48 casos
+
 - **Completitud de reportes**:
     - **Reportes completos**: 257 casos
     - **Reportes incompletos**: 55 casos
+
+```{r radio.accidents.df.complete.report, echo=FALSE, warning=FALSE}
+radio.accidents.df %>% ggplot() +
+  geom_bar(aes(y = `Reporte completo? (SI/NO)` %>% fct_infreq() %>% fct_rev(), fill = `es incidente de tráfico? (si/no)` %>% fct_infreq())) +
+  labs(y = "Reporte completo? (SI/NO)", fill = "es incidente de tráfico? (si/no)")
+```
 
 ### Tipología de Incidentes
 
 *Distribución por categoría*:
 
-- Congestión: 191 casos
-- Obstrucciones en la vía: 38 casos
-- Condición de tráfico: 26 casos
-- Problema Infraestructura de control de tránsito: 25 casos
-- Accidentes de tránsito: 20
-- Intervenciones de emergencia: 7 casos
-- Otros: 5 casos
+- Congestión: 157 casos
+- Accidentes de tránsito: 43 casos
+- Problema Infraestructura de control de tránsito: 38 casos
+- Condición de tráfico: 25 casos
+- Obstrucciones en la vía: 20 casos
+- Intervenciones de emergencia: 5 casos
+- Otros: 24 casos
+
+```{r radio.accidents.df.types, echo=FALSE, warning=FALSE}
+radio.accidents.df %>% ggplot() +
+  geom_bar(aes(y = `Tipo de incidente` %>% fct_infreq() %>% fct_rev(), fill = dir %>% fct_infreq())) +
+  labs(y = "Tipo de incidente", fill = "dir") +
+  scale_y_discrete(labels = label_wrap_gen(width = 15))
+```
+
 
 ### Direccionalidad del Tráfico Afectado
 
@@ -1240,6 +1239,13 @@ El dataset contiene 312 registros de incidentes de tráfico reportados a través
 - Ambos sentidos (a/s): 2 casos
 - Bidireccional (S-N, N-S): 1 caso
 - No especificado: 163 casos
+
+```{r radio.accidents.df.dir, echo=FALSE, warning=FALSE}
+radio.accidents.df %>% ggplot() +
+  geom_bar(aes(fill = `Tipo de incidente` %>% fct_infreq(), y = dir %>% fct_infreq() %>% fct_rev())) +
+  labs(fill = "Tipo de incidente", y = "dir") +
+  scale_fill_discrete(labels = label_wrap_gen(width = 15))
+```
 
 ### Procesamiento y Normalización de Datos
 
@@ -1267,59 +1273,19 @@ El dataset contiene 312 registros de incidentes de tráfico reportados a través
 - "color" se convierte en factor
 - Se crea la columna "Tipo de incidente" a partir de "color":
   - "Congestión" cuando es nulo
-  - "Intervenciones de Emergencia" cuando es <font color="FF00B0F0">FF00B0F0</font>
-  - "Congestión" cuando es <font color="FF00FFFF">FF00FFFF</font>
-  - "Accidente de tránsito" cuando es <font color="FFFF0000">FFFF0000</font>
-  - "Obstrucciones en la vía" cuando es <font color="FFFF00FF">FFFF00FF</font>
-  - "Problema Infraestructura de control de tránsito" cuando es <font color="FFFF6600">FFFF6600</font>
-  - "Condición de tráfico" cuando es <font color="FFFFC000">FFFFC000</font>
-  - "Congestión" cuando es <font color="FFFFFF00">FFFFFF00</font>
-  - "Otros" cuando es <font color="FF00B050">FF00B050</font>
+  - "Intervenciones de Emergencia" cuando es <font color="#FF00B0F0">FF00B0F0</font>
+  - "Congestión" cuando es <font color="#FF00FFFF">FF00FFFF</font>
+  - "Accidente de tránsito" cuando es <font color="#FFFF0000">FFFF0000</font>
+  - "Obstrucciones en la vía" cuando es <font color="#FFFF00FF">FFFF00FF</font>
+  - "Problema Infraestructura de control de tránsito" cuando es <font color="#FFFF6600">FFFF6600</font>
+  - "Condición de tráfico" cuando es <font color="#FFFFC000">FFFFC000</font>
+  - "Congestión" cuando es <font color="#FFFFFF00">FFFFFF00</font>
+  - "Otros" cuando es <font color="#FF00B050">FF00B050</font>
 - Se elimina la columna "color"
 - Cuando "Hora" es nulo, toma el valor de la fila anterior
 - "coord" se separa en "lat" y "lng", separado por ",\\s*" y se convierten en numéricos
 - Se eliminan las filas en las que "lat" es nulo
 - "Hora" se convirtió en la concatenación de "fecha" y "hora" y se convierte en POSIXct con el formato "%Y-%m-%d %H:%M"
-
-
-**Extracción y Estructuración**
-
-- **Identificación de hojas relevantes**: Filtrado por nombres con formato fecha (dd-mm)
-- **Consolidación temporal**: Unificación de 37 hojas diarias en dataset único
-- **Construcción de timeline**: Asignación de fechas basada en nombres de hojas
-
-**Limpieza y Estandarización**
-
-*Normalización de Variables Categóricas*:
-
-- **"Reporte completo? (SI/NO)"**:
-    - *Valores estandarizados*: "SI" para ["is", "si", "SI", "su"], "NO" para ["no", "NO"]
-    - *Valores excluidos*: "-" convertido a NA
-- **"es incidente de tráfico? (si/no)"**:
-    - *Valores estandarizados*: "SI" para ["si", "SI"], "NO" para ["no", "NO"]
-- *Direccionalidad ("dir")*:
-    - *Normalización de notaciones*: Unificación de variantes ("e-o" -> "E-O", "n-s" -> "N-S", etc.)
-    - *Patrones bidireccionales*: Estandarización de formatos compuestos
-    - *Valores inválidos*: ["-", "n/a", "n/A"] convertidos a NA
-
-**Sistema de Clasificación por Color**
-
-*Mapeo cromático de tipos de incidente*:
-
-- `FF00B0F0` -> Intervenciones de Emergencia
-- `FF00FFFF`, `FFFFFF00`, `NA` -> Congestión
-- `FFFF0000` -> Accidente de tránsito
-- `FFFF00FF` -> Obstrucciones en la vía
-- `FFFF6600` -> Problema Infraestructura de control
-- `FFFFC000` -> Condición de tráfico
-- `FF00B050` -> Otros
-
-**Optimizaciones Geográficas y Temporales**
-
-- **Coordenadas**: Separación de campo "coord" en latitud/longitud numéricas
-- **Timestamp**: Fusión de fecha y hora en campo datetime unificado
-- **Completitud**: Rellenado de horas faltantes con valores anteriores
-- **Estructura de datos**: Conversión de variables clave a tipo factor
 
 ## Med velo CHIGUAYANTE.xlsx
 
@@ -1371,12 +1337,35 @@ El dataset contiene 338 mediciones de velocidad vehicular capturadas en el parad
 - **Período de medición**: 26 de junio de 2024 entre las 09:06 y las 17:58 horas
 - **Duración**: Aproximadamente 9 horas de monitoreo continuo
 
+### Granularidad Temporal
+
+```{r chiguayante.speed.df.time, echo=FALSE, warning=FALSE}
+chiguayante.speed.df.sorted <- chiguayante.speed.df[chiguayante.speed.df$Hora %>% order(),]
+differences <- chiguayante.speed.df.sorted %>%
+  mutate(
+    prev_time = Hora %>% lag(),
+    same_dir = (dirección == (dirección %>% lag(default = dirección %>% first() - 1)))
+  ) %>%
+  mutate(
+    diff = if_else(same_dir, (Hora - prev_time) %>% as.numeric(), NA_real_)
+  ) %>%
+  pull(diff)
+#differences %>% summary()
+chiguayante.speed.df %>% ggplot() +
+  geom_density(aes(x = Hora, colour = dirección))
+```
+
 ### Análisis de Velocidades
 
 - **Rango de velocidades**: 3 a 71 km/h
 - **Velocidad promedio**: 44.27 km/h
 - **Velocidad mediana**: 43 km/h
 - **Distribución**: Relativamente simétrica alrededor de la mediana
+
+```{r chiguayante.speed.df.speed, echo=FALSE, warning=FALSE}
+chiguayante.speed.df %>% ggplot() +
+  stat_density2d_filled(aes(y = `Velocidad [km/hr]`, x = Hora))
+```
 
 ### Composición Vehicular
 
@@ -1388,6 +1377,12 @@ El dataset contiene 338 mediciones de velocidad vehicular capturadas en el parad
 - **Motos**: 3 registros
 - **Retroexcavadora**: 1 registro
 
+```{r chiguayante.speed.df.vehicles, echo=FALSE, warning=FALSE}
+chiguayante.speed.df %>% ggplot() +
+  geom_bar(aes(y = Vehículo %>% fct_infreq() %>% fct_rev(), fill = dirección %>% fct_infreq())) +
+  labs(y = "Vehículo", fill = "dirección")
+```
+
 ### Patrones de Movimiento
 
 **Distribución direccional**:
@@ -1396,6 +1391,12 @@ El dataset contiene 338 mediciones de velocidad vehicular capturadas en el parad
 - **Hacia Hualqui**: 175 mediciones
 - **Balance**: Ligero predominio del flujo hacia Hualqui
 
+```{r chiguayante.speed.df.direction, echo=FALSE, warning=FALSE}
+chiguayante.speed.df %>% ggplot() +
+  geom_bar(aes(y = dirección %>% fct_infreq() %>% fct_rev())) +
+  labs(y = "dirección")
+```
+
 ### Comportamientos Específicos
 
 **Maniobras documentadas**:
@@ -1403,6 +1404,12 @@ El dataset contiene 338 mediciones de velocidad vehicular capturadas en el parad
 - "Auto, dobló a Lo Plaza": 8 casos
 - "Auto, iba a doblar a Lo Plaza": 1 caso
 - "auto, se percibe cola": 1 caso
+
+```{r chiguayante.speed.df.comment, echo=FALSE, warning=FALSE}
+chiguayante.speed.df[chiguayante.speed.df$Vehículo == "Auto" & !(chiguayante.speed.df$Comentario %>% is.na()),] %>% ggplot() +
+  geom_bar(aes(y = Comentario %>% fct_infreq() %>% fct_rev())) +
+  labs(y = "Comentario")
+```
 
 ### Procesamiento y Normalización de Datos
 
@@ -1422,45 +1429,6 @@ El dataset contiene 338 mediciones de velocidad vehicular capturadas en el parad
 - "Lugar (dirección)" se convierte en factor
 - Se crea la columna "Vehículo" que toma el valor de la columna "Comentario" si su valor es "Camión", "Micro", "MOTO" o "retroexcavadora" y "Auto" en otro caso
 - "Vehículo" se convierte en factor
-
-**Estructuración Multi-hoja**
-
-- **Organización por dirección**: Cada hoja representa una dirección de flujo (Concepción->Hualqui / Hualqui->Concepción)
-- **Consolidación**: Unificación de todas las hojas en dataset único
-- **Metadatos direccionales**: Incorporación de columna "dirección" desde nombres de hojas
-
-**Limpieza y Estandarización**
-
-*Normalización de Localización*
-
-- **Unificación geográfica**: Campo "Lugar (dirección)" consolidado por hoja
-- **Eliminación de redundancias**: Remoción de 9 columnas vacías o duplicadas (...5 a ...13)
-
-*Procesamiento Temporal*
-
-- **Completitud horaria**: Rellenado de valores faltantes usando observaciones anteriores
-- **Formato estandarizado**: Conversión a tipo hms para análisis temporal
-
-*Estandarización de Categorías*
-
-Comentarios vehiculares:
-
-- *Maniobras*: Unificación de variantes ["auto, doblo a Lo Plaza", "Auto, doblo a Lo Plaza", "Auto, gira a Lo Plaza"] -> "Auto, dobló a Lo Plaza"
-- *Tipos vehiculares*: Normalización de ["camion", "Camion"] -> "Camión" y ["micro", "Micro"] -> "Micro"
-
-*Clasificación Vehicular Sistematizada*
-
-Variable "Vehículo":
-
-- *Valor por defecto*: "Auto" para registros sin comentario o con referencias a automóviles
-- *Especificación*: Conservación de categorías explícitas ["Camión", "Micro", "MOTO", "retroexcavadora"]
-- *Optimización*: Conversión a tipo factor para análisis categórico
-
-**Optimizaciones Finales**
-
-- **Estructuración**: Conversión de variables clave a tipo factor
-- **Consistencia**: Validación de integridad de datos numéricos
-- **Preparación analítica**: Dataset listo para análisis estadístico y temporal
 
 ## Med velo LA VEGA.xlsx
 
@@ -1527,12 +1495,35 @@ El dataset contiene 432 mediciones de velocidad vehicular capturadas en el cruce
 - **Período de medición**: 25 de junio de 2024 entre las 08:08 y las 17:58 horas
 - **Duración**: Aproximadamente 10 horas de monitoreo continuo
 
+### Granularidad Temporal
+
+```{r vega.speed.df.time, echo=FALSE, warning=FALSE}
+vega.speed.df.sorted <- vega.speed.df[vega.speed.df$Hora %>% order(),]
+differences <- vega.speed.df.sorted %>%
+  mutate(
+    prev_time = Hora %>% lag(),
+    same_dir = (dirección == (dirección %>% lag(default = dirección %>% first() - 1)))
+  ) %>%
+  mutate(
+    diff = if_else(same_dir, (Hora - prev_time) %>% as.numeric(), NA_real_)
+  ) %>%
+  pull(diff)
+#differences %>% summary()
+vega.speed.df %>% ggplot() +
+  geom_density(aes(x = Hora, colour = dirección))
+```
+
 ### Análisis de Velocidades
 
 - **Rango de velocidades**: 5 a 53 km/h
 - **Velocidad promedio**: 28.87 km/h
 - **Velocidad mediana**: 29 km/h
 - **Distribución**: Concentrada en velocidades bajas-medias, típicas de tráfico urbano congestionado
+
+```{r vega.speed.df.speed, echo=FALSE, warning=FALSE}
+vega.speed.df %>% ggplot() +
+  stat_density2d_filled(aes(y = `Velocidad.[km/hr]`, x = Hora))
+```
 
 ### Patrones de Movimiento
 
@@ -1541,6 +1532,12 @@ El dataset contiene 432 mediciones de velocidad vehicular capturadas en el cruce
 - **Desde 21 de Mayo**: 250 mediciones
 - **Hacia 21 de Mayo**: 182 mediciones
 - **Balance**: Predominio del flujo desde 21 de Mayo
+
+```{r vega.speed.df.direction, echo=FALSE, warning=FALSE}
+vega.speed.df %>% ggplot() +
+  geom_bar(aes(y = dirección %>% fct_infreq() %>% fct_rev())) +
+  labs(y = "dirección")
+```
 
 ### Fenómenos de Congestión Documentados
 
@@ -1572,49 +1569,6 @@ El dataset contiene 432 mediciones de velocidad vehicular capturadas en el cruce
 - "Lugar (dirección)" se convierte en factor
 - "dirección" se convierte en factor
 
-**Estrategia de Extracción Multi-hoja**:
-
-- **Filtrado inteligente**: Identificación de hojas relevantes mediante patrones "21" y "mayo"
-- **Organización direccional**: Cada hoja representa un sentido de flujo específico
-- **Consolidación estructurada**: Unificación de múltiples hojas en dataset coherente
-
-**Corrección de Formatos Temporales**
-
-*Normalización de Horarios*
-
-- **Problema identificado**: Formato decimal incorrecto en celdas horarias (ej: "8,15" en lugar de "8:15")
-- **Solución aplicada**:
-    - Conversión de formato decimal a fracción diaria
-    - Reconstrucción de horas y minutos mediante operaciones matemáticas
-    - Formateo consistente a "HH:MM:SS"
-
-*Completitud de Series Temporales*
-
-- **Rellenado inteligente**: Propagación de valores horarios hacia adelante
-- **Consistencia temporal**: Garantía de continuidad en las mediciones
-
-**Estandarización de Categorías y Comentarios**
-
-*Unificación de Términos de Congestión*
-
-Agrupamiento por patrones:
-
-- *Formación de colas*: ["cola por funeral", "forman cola"] -> "Forman cola"
-- *Incorporación a colas*: Variantes de "llega a cola" unificadas
-- *Agrupamiento vehicular*: Múltiples expresiones de "llegan juntos" estandarizadas
-
-*Clasificación Vehicular*
-
-- *Transporte público*: ["micro", "Micro"] -> "Micro"
-- *Motocicletas*: ["moto", "Moto"] -> "Moto"
-
-### Optimizaciones Estructurales
-
-- **Geolocalización unificada**: Consolidación de "Lugar.(dirección)" por hoja
-- **Metadatos direccionales**: Incorporación sistemática desde nombres de hojas
-- **Tipificación eficiente**: Conversión a factores para análisis categórico
-- **Limpieza de datos**: Eliminación de registros sin medición de velocidad
-
 ## tb_gps_historial_eventos_202509161626(1).csv
 
 ```{r getData6, eval=FALSE, include=FALSE}
@@ -1643,9 +1597,20 @@ El dataset contiene 1000 eventos registrados por sistemas GPS vehiculares, captu
 ### Período de Monitoreo
 
 - **Fecha de referencia**: Transición año nuevo 2024-2025
-- **Según timestamp del auto**: 1 de enero de 2025, 00:00:06 - 01:06:29 (66 minutos)
-- **Según timestamp del GPS**: 31 de diciembre de 2024, 23:59:22 - 1 de enero de 2025, 01:06:49 (67 minutos)
+- **Según timestamp del auto**: 1 de enero de 2025, 00:00:06 - 01:06:29 (1 hora, 6 minutos)
+- **Según timestamp del GPS**: 31 de diciembre de 2024, 23:59:22 - 1 de enero de 2025, 01:06:49 (1 hora, 7 minutos)
 - **Discrepancia temporal**: Diferencia de sincronización entre sistemas de aproximadamente 1 minuto
+
+### Granularidad Temporal
+
+```{r gps.events.time, echo=FALSE, warning=FALSE}
+gps.events.odd <- gps.events[1:(gps.events %>% nrow()) %% 2 == 1,]
+differences <- (gps.events.odd$fecha_auto - c(NA, gps.events.odd$fecha_auto[1:(gps.events.odd %>% nrow() - 1)])) %>% as.numeric()
+differences %>% summary()
+ggplot() +
+  geom_histogram(aes(x = differences, fill = gps.events.odd$evento_ %>% fct_infreq())) +
+  labs(x = "differences", fill = "evento_")
+```
 
 ### Distribución de Estados Vehiculares
 
@@ -1664,6 +1629,12 @@ El dataset contiene 1000 eventos registrados por sistemas GPS vehiculares, captu
 - `-223`: 184 casos
 - `-85`: 184 casos
 - `235`: 132 casos
+
+```{r gps.events.event, echo=FALSE, warning=FALSE}
+gps.events %>% ggplot() +
+  geom_bar(aes(y = evento_ %>% fct_infreq() %>% fct_rev(), fill = direccion_ %>% fct_infreq())) +
+  labs(y = "evento_", fill = "direccion_")
+```
 
 **Observación**: Los valores negativos y positivos sugieren un sistema de coordenadas o ángulos específico.
 
@@ -1686,24 +1657,6 @@ El dataset contiene 1000 eventos registrados por sistemas GPS vehiculares, captu
 - "fecha_gps_" se convierte en un POSIXct con formato "%Y-%m-%d %H:%M:%S"
 - "evento_" se convierte en factor
 - "direccion_" se convierte en factor
-
-**Corrección de Formato de Archivo**
-
-- **Problema original**: Formato CSV con delimitadores inconsistentes y caracteres de escape
-- **Transformación aplicada**:
-    - Reemplazo de ";" por espacio para unificación
-    - Sustitución de , por ; como nuevo delimitador
-    - Eliminación de comillas redundantes
-- **Resultado**: Estructura tabular legible para importación
-
-**Optimización de Estructura de Datos**
-
-- **Eliminación de columnas vacías**: `ubicacion_` y `velocidad_` removidas por contener exclusivamente valores nulos
-- **Normalización temporal**:
-    - `fecha_auto` y `fecha_gps_` convertidas a formato datetime
-    - Preservación de precisiones de segundos
-- **Tipificación categórica**:
-    - `evento_` y `direccion_` convertidas a factor para análisis estadístico
 
 ## Inventario CCTV Biobío(1).xlsx
 
@@ -1753,6 +1706,12 @@ El inventario documenta 71 ubicaciones de cámaras de vigilancia y sus respectiv
 - **Cámaras offline**: 39 unidades
 - **Disponibilidad general**: Sistema operando con 45% de disponibilidad inmediata
 
+```{r biobio.inventary.cities, echo=FALSE, warning=FALSE}
+biobio.inventary %>% ggplot() +
+  geom_bar(aes(y = COMUNA %>% fct_infreq() %>% fct_rev(), fill = ESTADO %>% fct_infreq())) +
+  labs(y = "COMUNA", fill = "ESTADO")
+```
+
 ### Características Técnicas de la Infraestructura
 
 **Conectividad y Proveedores**
@@ -1774,6 +1733,12 @@ El inventario documenta 71 ubicaciones de cámaras de vigilancia y sus respectiv
 - Avigilon 2.0C-H5A-RGDPTZ-DP36: 10 unidades
 - Axis AXIS Q8685-E: 10 unidades
 
+```{r biobio.inventary.cameras, echo=FALSE, warning=FALSE}
+biobio.inventary %>% ggplot() +
+  geom_bar(aes(y = `MODELO DE LA CÁMARA` %>% fct_infreq() %>% fct_rev(), fill = `MARCA DE LA CÁMARA` %>% fct_infreq())) +
+  labs(y = "MODELO DE LA CÁMARA", fill = "MARCA DE LA CÁMARA" %>% str_wrap(width = 10))
+```
+
 **Sistema de Codificación de Video**
 
 *Codificadores identificados*:
@@ -1781,11 +1746,22 @@ El inventario documenta 71 ubicaciones de cámaras de vigilancia y sus respectiv
 - Axis AXIS Q7401: 26 unidades
 - Sin especificar: 45 unidades - posiblemente integrados en cámaras o no documentados
 
+```{r biobio.inventary.video, echo=FALSE, warning=FALSE}
+biobio.inventary %>% ggplot() +
+  geom_bar(aes(y = `MODELO DEL CODIFICADOR DE VIDEO` %>% fct_infreq() %>% fct_rev(), fill = `MARCA DEL CODIFICADOR DE VIDEO` %>% fct_infreq())) +
+  labs(y = "MODELO DEL CODIFICADOR DE VIDEO", fill = "MARCA DEL CODIFICADOR DE VIDEO" %>% str_wrap(width = 10))
+```
+
 ### Evolución Temporal del Sistema
 
 - **Rango de integración**: 1 de noviembre de 2003 - 1 de septiembre de 2024
 - **Vida útil del sistema**: Más de 20 años de despliegue progresivo
 - **Actualizaciones recientes**: Integraciones hasta septiembre 2024
+
+```{r biobio.inventary.integration, echo=FALSE, warning=FALSE}
+biobio.inventary %>% ggplot() +
+  geom_density(aes(x = `FECHA INTEGRACION`, colour = COMUNA))
+```
 
 ### Procesamiento y Normalización de Datos
 
@@ -1801,27 +1777,6 @@ El inventario documenta 71 ubicaciones de cámaras de vigilancia y sus respectiv
 - "MARCA DEL CODIFICADOR DE VIDEO" se convierte en factor
 - "MODELO DEL CODIFICADOR DE VIDEO" se convierte en factor
 - "REGIÓN" se convierte en factor
-
-**Corrección de Estructura de Columnas**:
-
-- **Problema original**: Columnas duplicadas "MARCA", "MODELO" y "NÚMERO DE SERIE" para cámara y codificador
-- **Solución aplicada**:
-    - Diferenciación clara mediante sufijos "DE LA CÁMARA" y "DEL CODIFICADOR DE VIDEO"
-    - Asignación basada en posición original en el dataset (columnas 1-11: cámara, 12-17: codificador)
-
-**Optimización para Análisis**:
-
-- **Normalización categórica**: Conversión de 9 variables clave a tipo factor:
-    - COMUNA
-    - ESTADO
-    - TIPO DE ENLACE
-    - PROVEEDOR
-    - MARCA DE LA CÁMARA
-    - MODELO DE LA CÁMARA
-    - MARCA DEL CODIFICADOR
-    - MODELO DEL CODIFICADOR
-    - REGIÓN
-- **Manejo de valores faltantes**: Identificación explícita de valores "----" como NA
 
 ## Alertas de Tráfico.csv
 
@@ -1858,8 +1813,16 @@ El dataset comprende 281759 alertas de tráfico generadas por usuarios de Waze, 
 ### Período de Análisis
 
 - **Cobertura temporal**: 23 de junio de 2023 - 15 de mayo de 2024
-- **Duración**: Aproximadamente 11 meses de datos continuos
-- **Registros diarios promedio**: \~850 alertas por día
+- **Duración**: 327 de datos continuos
+- **Registros diarios promedio**: 861.65 alertas por día
+
+### Granularidad Temporal
+
+```{r trafic.alerts.time, echo=FALSE, warning=FALSE}
+trafic.alerts %>% ggplot() +
+  geom_histogram(aes(x = Date, fill = City)) +
+  scale_fill_discrete(labels = label_wrap_gen(width = 15))
+```
 
 ### Contexto Geográfico
 
@@ -1868,6 +1831,13 @@ El dataset comprende 281759 alertas de tráfico generadas por usuarios de Waze, 
     - San Pedro de la Paz: 51816 alertas
     - Talcahuano: 35122 alertas
     - Otras comunas: 64074 alertas
+
+```{r trafic.alerts.cities, echo=FALSE, warning=FALSE}
+trafic.alerts %>% ggplot() +
+  geom_bar(aes(y = City %>% fct_infreq() %>% fct_rev())) +
+  labs(y = "City") +
+  scale_x_log10()
+```
 
 ### Clasificación de Alertas
 
@@ -1900,6 +1870,15 @@ El dataset comprende 281759 alertas de tráfico generadas por usuarios de Waze, 
 - Vehículo detenido en franja lateral (HAZARD_ON_SHOULDER_CAR_STOPPED): 6097 casos
 - Otros peligros meteorológicos: 14133 casos
 
+```{r trafic.alerts.types, echo=FALSE, warning=FALSE}
+trafic.alerts[trafic.alerts$Subtype %in% (trafic.alerts %>%
+  count(Subtype) %>%
+  slice_max(n, n = 10) %>%
+  pull(Subtype)),] %>% ggplot() +
+  geom_bar(aes(y = Subtype %>% fct_infreq() %>% fct_rev(), fill = Type %>% fct_infreq())) +
+  labs(y = "Subtype", fill = "Type")
+```
+
 ### Procesamiento y Normalización de Datos
 
 **Paso a paso**
@@ -1911,31 +1890,6 @@ El dataset comprende 281759 alertas de tráfico generadas por usuarios de Waze, 
 - "City" se convierte en factor
 - "Type" se convierte en factor
 - "Subtype" se convierte en factor
-
-**Transformación de Coordenadas Geográficas**
-
-- **Problema original**: Campo "Location" en formato WKT (Well-Known Text): `Point(lng lat)`
-- **Solución aplicada**:
-    - Extracción de longitud (`lng`) mediante regex: `(?<=Point\\()-?\\d+\\.?\\d*`
-    - Extracción de latitud (`lat`) mediante regex: `-?\\d+\\.?\\d*(?=\\)$)`
-    - Conversión a tipos numéricos para análisis espacial
-
-**Normalización de Fechas**
-
-- **Formato original**: Día-Mes-Año con abreviaturas en español
-- **Conversión aplicada**:
-    - Mapeo de abreviaturas españolas a inglesas: `{"ene":"jan", "feb":"feb", ..., "dic":"dec"}`
-    - Transformación a formato Date usando `dmy()`
-
-**Optimización para Análisis**
-
-- **Tipificación categórica**: Conversión a factor de 4 variables clave:
-    - Country
-    - City
-    - Type
-    - Subtype
-- Eliminación de redundancias: Remoción de columna "Location" original
-- Estructura final: Dataset con 281759 registros × 8 columnas optimizadas
 
 ## Copia de Accidentes.csv
 
@@ -1971,7 +1925,15 @@ El dataset contiene 281981 registros de accidentes de tránsito, proporcionando 
 
 - **Cobertura temporal**: 23 de junio de 2023 - 15 de mayo de 2024
 - **Duración**: 327 días de reportes continuos
-- **Densidad de datos**: \~862 accidentes reportados por día en promedio
+- **Densidad de datos**: ~862.33 accidentes reportados por día en promedio
+
+### Granularidad Temporal
+
+```{r accidents.time, echo=FALSE, warning=FALSE}
+accidents %>% ggplot() +
+  geom_histogram(aes(x = Date, fill = City)) +
+  scale_fill_discrete(labels = label_wrap_gen(width = 15))
+```
 
 ### Contexto Geográfico
 
@@ -1981,12 +1943,26 @@ El dataset contiene 281981 registros de accidentes de tránsito, proporcionando 
     - Talcahuano: 35059 alertas
     - Otras comunas: 64702 alertas
 
+```{r accidents.cities, echo=FALSE, warning=FALSE}
+accidents %>% ggplot() +
+  geom_bar(aes(y = City %>% fct_infreq() %>% fct_rev())) +
+  labs(y = "City") +
+  scale_x_log10()
+```
+
 ### Métricas de Confiabilidad
 
 - **Rango de fiabilidad**: 5 a 10 puntos (escala no especificada)
 - **Fiabilidad promedio**: 5.82 puntos
 - **Fiabilidad mediana**: 5 puntos
 - **Distribución**: Sesgada hacia valores bajos-medios de la escala
+
+```{r accidents.reliability, echo=FALSE, warning=FALSE}
+accidents %>% ggplot() +
+  geom_histogram(aes(x = `Avg Reliability`, fill = City)) +
+  scale_y_log10() +
+  scale_fill_discrete(labels = label_wrap_gen(width = 15))
+```
 
 ### Procesamiento y Normalización de Datos
 
@@ -1997,30 +1973,6 @@ El dataset contiene 281981 registros de accidentes de tránsito, proporcionando 
 - En la columna "Date", se reemplazan los valores "ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov" y "dic" por "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov" y "dec", respectivamente
 - "Country" se convierte en factor
 - "City" se convierte en factor
-
-**Transformación de Georreferenciación**
-
-- **Formato original**: Campo "Location" en estándar WKT (Well-Known Text)
-- **Metodología de extracción**:
-    - Longitud (`lng`): Patrón regex `(?<=Point\\()-?\\d+\\.?\\d*`
-    - Latitud (`lat`): Patrón regex `-?\\d+\\.?\\d*(?=\\)$)`
-- **Resultado**: Coordenadas decimales para análisis geoespacial avanzado
-
-**Estandarización de Fechas**
-
-- **Problema identificado**: Nomenclatura de meses en español
-- **Solución implementada**:
-    - Mapeo sistemático: `{"ene":"jan", "feb":"feb", ..., "dic":"dec"}`
-    - Conversión robusta mediante función `dmy()`
-- **Output**: Timeline consistente para análisis temporal
-
-**Optimización de Estructura de Datos**
-
-- **Eliminación de redundancias**: Remoción de columna "Location" original
-- **Normalización categórica**:
-    - `Country` y `City` convertidas a tipo factor
-    - Habilitación de análisis agregados por ubicación
-- **Dataset final**: 281981 registros × 7 columnas optimizadas
 
 ## Waze for Cities Data Key Alerts Dashboard_Traffic Irregularities_Tabla(1).csv
 
@@ -2045,7 +1997,15 @@ El dataset contiene 13502 registros de irregularidades de tráfico documentadas 
 
 - **Cobertura temporal**: 23 de junio de 2023 - 15 de mayo de 2024
 - **Duración**: 327 días de monitoreo continuo
-- **Frecuencia promedio**: \~41 irregularidades reportadas por día
+- **Frecuencia promedio**: 41.29 irregularidades reportadas por día
+
+### Granularidad Temporal
+
+```{r waze.data.time, echo=FALSE, warning=FALSE}
+waze.data %>% ggplot() +
+  geom_histogram(aes(x = Day, fill = City)) +
+  scale_fill_discrete(labels = label_wrap_gen(width = 15))
+```
 
 ### Distribución Geográfica
 
@@ -2055,12 +2015,25 @@ El dataset contiene 13502 registros de irregularidades de tráfico documentadas 
     - San Pedro de la Paz: 2190 registros
     - Otras localidades: 3592 registros
 
+```{r waze.data.causes, echo=FALSE, warning=FALSE}
+waze.data %>% ggplot() +
+  geom_bar(aes(y = City %>% fct_infreq() %>% fct_rev(), fill = Cause %>% fct_infreq())) +
+  labs(y = "City", fill = "Cause")
+```
+
 ### Clasificación por Causas Identificadas
 
 - **Accidentes (ACCIDENT)**: 839 casos
 - **Peligros en la vía (HAZARD)**: 826 casos
 - **Carreteras cerradas (ROAD_CLOSED)**: 3 casos
 - **Causa no especificada**: 11834 casos
+
+```{r waze.data.causes, echo=FALSE, warning=FALSE}
+waze.data[!(waze.data$Cause %>% is.na()),] %>% ggplot() +
+  geom_bar(aes(y = Cause %>% fct_infreq() %>% fct_rev(), fill = City %>% fct_infreq())) +
+  scale_fill_discrete(labels = label_wrap_gen(width = 15)) +
+  labs(y = "Cause", fill = "City")
+```
 
 ### Métricas de Impacto de Tráfico
 
@@ -2071,6 +2044,12 @@ El dataset contiene 13502 registros de irregularidades de tráfico documentadas 
 - **Mediana**: 947 m
 - **Distribución**: Sesgo hacia afectaciones de mediana extensión
 
+```{r waze.data.length, echo=FALSE, warning=FALSE}
+waze.data %>% ggplot() +
+  geom_density(aes(x = `Avg Length (Meters)`, colour = Cause)) +
+  scale_x_log10()
+```
+
 **Tiempos de Desfase**
 
 - **Rango**: 1 minuto 7.33 segundos - 6 horas 27 minutos 26 segundos
@@ -2078,12 +2057,24 @@ El dataset contiene 13502 registros de irregularidades de tráfico documentadas 
 - **Mediana**: 9 minutos 18.25 segundos
 - **Significado**: Retrasos significativos en la movilidad urbana
 
+```{r waze.data.delay, echo=FALSE, warning=FALSE}
+waze.data %>% ggplot() +
+  geom_density(aes(x = `Avg Delay (Seconds)`, colour = Cause)) +
+  scale_x_log10()
+```
+
 **Impacto en Usuarios**
 
 - **Usuarios afectados (Impacted Wazers)**: 1 - 122563 personas
 - **Promedio de afectados**: 2033 usuarios por incidente
 - **Mediana**: 465 usuarios
 - **Distribución**: Alta variabilidad con eventos masivos ocasionales
+
+```{r waze.data.impacted.wazers, echo=FALSE, warning=FALSE}
+waze.data %>% ggplot() +
+  geom_density(aes(x = `Impacted Wazers`, colour = Cause)) +
+  scale_x_log10()
+```
 
 ### Procesamiento y Normalización de Datos
 
@@ -2094,22 +2085,6 @@ El dataset contiene 13502 registros de irregularidades de tráfico documentadas 
 - "City" se convierte en factor
 - "Street" se convierte en factor
 - "Cause" se convierte en factor
-
-**Estandarización Temporal**
-
-- **Formato original**: Fechas con nomenclatura de meses en español
-- **Transformación aplicada**:
-    - Mapeo sistemático: `{"ene":"jan", "feb":"feb", ..., "dic":"dec"}`
-    - Conversión a formato Date mediante `dmy()`
-- **Resultado**: Timeline consistente para análisis diario y estacional
-
-**Optimización de Estructura de Datos**
-
-- **Manejo de valores nulos**: Identificación explícita de "null" como NA
-- **Normalización categórica**:
-    - `Country`, `City`, `Street`, `Cause` convertidas a tipo factor
-    - Habilitación de análisis agregados por múltiples dimensiones
-- **Dataset final**: 13502 registros × 8 columnas optimizadas
 
 ## Red de Waze
 
@@ -2216,12 +2191,12 @@ for(folder in folders){
   print(folder.dt.sys)
 }
 total.dt <- folder.time.list %>% sum.time()
-# Reading Time: 3h + 5m + 7.66s
+# Reading Time: 4h + 13m + 36.01s
 start.sys <- Sys.time()
 waze.routes.df <- routes.list %>% bind_rows()
 end.sys <- Sys.time()
 binding.time <- end.sys - start.sys
-# Binding Time: 5.23s
+# Binding Time: 15.76s
 start.sys <- Sys.time()
 waze.routes.df$toName <- waze.routes.df$toName %>% as.factor()
 waze.routes.df$name <- waze.routes.df$name %>% as.factor()
@@ -2253,7 +2228,7 @@ waze.routes.df$updateTime <- (waze.routes.df$updateTime / 1000) %>% as.POSIXct(o
 waze.routes.df$weekday <- waze.routes.df$updateTime %>% weekdays() %>% as.factor()
 end.sys <- Sys.time()
 modifying.time <- end.sys - start.sys
-# Modifying Time: 3m + 18.35s
+# Modifying Time: 4m + 35.99s
 waze.routes.df %>% summary()
 waze.routes <- waze.routes.df %>% distinct(id, date, file, .keep_all = T) %>% select(-x, -y, -point_index)
 waze.routes %>% summary()
@@ -2404,43 +2379,78 @@ for(placeName in waze.routes.heatmap$placeName %>% levels()){
 }
 ```
 
-El sistema procesó 491736 registros de datos de rutas provenientes de la API de Waze, consolidando información de navegación y alertas de tráfico durante un período de 21 días.
+El sistema procesó 766668 registros de datos de rutas provenientes de la API de Waze, consolidando información de navegación y alertas de tráfico durante un período de 21 días.
 
 ### Metadatos de Procesamiento
 
-- **Tiempo de lectura**: 2 horas, 31 minutos, 41.63 segundos 2h + 31m + 41.63s
-- **Tiempo de unión**: 3.78 segundos 3.78s
-- **Tiempo de transformación**: 2 minuto, 41.69 segundos 2m + 41.69s
-- **Total de procesamiento**: 2 horas, 34 minutos, 27.10 segundos
+- **Tiempo de lectura**: 4 horas, 13 minutos, 36.01 segundos
+- **Tiempo de unión**: 15.76 segundos
+- **Tiempo de transformación**: 4 minutos, 35.99 segundos
+- **Total de procesamiento**: 4 horas, 18 minutos, 27.76 segundos
 
 ### Período de Monitoreo
 
 - **Fecha inicial**: 24 de noviembre de 2025 a las 15:31:51
-- **Fecha final**: 15 de diciembre de 2025 a las 20:12:08
-- **Duración**: 21 días completos
+- **Fecha final**: 29 de diciembre de 2025 a las 19:46:46
+- **Duración**: 35 días, 4 horas, 14 minutos, 55 segundos
 - **Estructura temporal**: Datos organizados por fecha en estructura de carpetas
+
+### Granularidad Temporal
+
+- **Diferencia mínima**: 1 minuto, 51.2 segundos
+- **Diferencia máxima**: 1 día, 23 horas, 25 minutos, 2.3 segundos
+- **Diferencia promedio**: 5 minutos, 33 segundos
+- **Diferencia mediana**: 5 minutos
+- **Desviación standard**: 30 minutos, 34.06 segundos
+
+```{r waze.routes.time, echo=FALSE, warning=FALSE}
+waze.routes.times <- waze.routes[waze.routes$updateTime %>% order(),] %>% distinct(updateTime)
+differences <- (waze.routes.times$updateTime - c(NA, waze.routes.times$updateTime[1:(waze.routes.times %>% nrow() - 1)])) %>% as.numeric()
+#differences %>% summary()
+ggplot() +
+  geom_density(aes(x = differences)) +
+  geom_vline(aes(xintercept = differences %>% mean(na.rm = T), colour = "promedio")) +
+  geom_vline(aes(xintercept = differences %>% median(na.rm = T), colour = "mediana")) +
+  scale_x_log10() +
+  scale_color_manual(
+    values = c("promedio" = "red", "mediana" = "green"),
+    breaks = c("promedio", "mediana")
+  )
+```
 
 ### Características del Dataset Consolidado
 
 **Volumen y Estructura**
 
-- **Registros totales**: 2821625 puntos de ruta
-- **Rutas únicas (agrupadas)**: 491736 rutas
+- **Registros totales**: 4399211 puntos de ruta
+- **Rutas únicas (agrupadas)**: 766668 rutas
 - **Nivel de detalle**: Desagregación punto por punto de trayectos
 
 **Análisis de Orígenes y Destinos**
 
 *Principales Destinos* (`toName`)
 
-- "Av. Los Carrera": 316116 referencias
-- "Av. Pedro Aguirre Cerda": 70248 referencias
-- "Ruta 160": 35124 referencias
+- "Av. Los Carrera": 492858 referencias
+- "Av. Pedro Aguirre Cerda": 109524 referencias
+- "Ruta 160": 54762 referencias
+
+```{r waze.routes.toName, echo=FALSE, warning=FALSE}
+waze.routes %>% ggplot() +
+  geom_bar(aes(y = toName %>% fct_infreq() %>% fct_rev(), fill = total_points %>% as.factor())) +
+  labs(y = "toName", fill = "total_points")
+```
 
 *Principales Orígenes* (`fromName`)
 
-- "Av. Los Carrera": 327824 referencias
-- "Av. Pedro Aguirre Cerda": 76102 referencias
-- "Ruta 160": 29270 referencias
+- "Av. Los Carrera": 511112 referencias
+- "Av. Pedro Aguirre Cerda": 118651 referencias
+- "Ruta 160": 45635 referencias
+
+```{r waze.routes.fromName, echo=FALSE, warning=FALSE}
+waze.routes %>% ggplot() +
+  geom_bar(aes(y = fromName %>% fct_infreq() %>% fct_rev(), fill = total_points %>% as.factor())) +
+  labs(y = "fromName", fill = "total_points")
+```
 
 **Métricas de Desempeño de Rutas**
 
@@ -2450,49 +2460,93 @@ El sistema procesó 491736 registros de datos de rutas provenientes de la API de
 - **Tiempo estimado** (`time`): 0-952 unidades (media: 26.96, mediana: 16)
 - **Unidades por confirmar**: Minutos o segundos (requiere validación)
 
+```{r waze.routes.historicTime, echo=FALSE, warning=FALSE}
+waze.routes %>% ggplot() +
+  geom_density(aes(x = historicTime)) +
+  scale_x_log10()
+```
+
 *Distancias y Velocidades*
 - **Longitud de ruta** (`length`): 0-1257 unidades (media: 175.4, mediana: 126)
 - **Velocidad calculada** (`speed`): 0.52-24 unidades (media: 8.06, mediana: 7.89)
 - **Relación distancia/tiempo**: Consistente con tráfico urbano congestionado
 
+```{r waze.routes.length, echo=FALSE, warning=FALSE}
+waze.routes %>% ggplot() +
+  stat_density_2d(
+    aes(x = time, y = length, fill = after_stat(level), alpha = after_stat(level)),
+    geom = "polygon",
+    show.legend = F
+  ) +
+  scale_x_log10() +
+  scale_y_log10()
+```
+
 **Sistema de Alertas Waze**
 
 *Distribución de Alertas*
 
-- **Total de alertas registradas**: 209
+- **Total de alertas registradas**: 301
+
+```{r waze.routes.alerts, echo=FALSE, warning=FALSE}
+waze.routes.alerts <- waze.routes[!(waze.routes$leadAlert.id %>% is.na()),]
+```
 
 *Tipología de Alertas* (`leadAlert.type`)
 
-**Peligros (HAZARD) - 107 casos**:
+**Accidentes (ACCIDENT) - 159 casos**:
 
-- `HAZARD_ON_ROAD`: 58 casos
-- `HAZARD_ON_ROAD_OBJECT`: 29 casos
-- `HAZARD_ON_ROAD_TRAFFIC_LIGHT_FAULT`: 9 casos
+- `NO_SUBTYPE`: 146 casos
+- `ACCIDENT_MAJOR`: 13 casos
+
+**Peligros (HAZARD) - 134 casos**:
+
+- `HAZARD_ON_ROAD`: 60 casos
+- `HAZARD_ON_ROAD_OBJECT`: 32 casos
+- `HAZARD_ON_ROAD_TRAFFIC_LIGHT_FAULT`: 22 casos
+- `HAZARD_ON_ROAD_CAR_STOPPED`: 10 casos
 - `HAZARD_ON_ROAD_CONSTRUCTION`: 6 casos
-- `HAZARD_ON_ROAD_CAR_STOPPED`: 4 casos
+- `HAZARD_WEATHER_FLOOD`: 4 casos
 
-**Accidentes (ACCIDENT) - 94 casos**:
+**Carreteras cerradas (ROAD_CLOSED) - 8 casos**
 
-- `NO_SUBTYPE`: 88 casos
-- `ACCIDENT_MAJOR`: 6 casos
+- `NO_SUBTYPE`: 8 casos
+
+```{r waze.routes.alerts.types, echo=FALSE, warning=FALSE}
+waze.routes.alerts %>% ggplot() +
+  geom_bar(aes(y = leadAlert.subType %>% fct_infreq() %>% fct_rev(), fill = leadAlert.type %>% fct_infreq())) +
+  labs(y = "leadAlert.subType", fill = "leadAlert.type")
+```
 
 *Interacción de Usuarios con Alertas*
 
-- **Comentarios** (`numComments`): 0-48 (media: 8.0, mediana: 3)
+- **Comentarios** (`numComments`): 0-89 (media: 9.2, mediana: 4)
 - **Me gusta** (`numThumbsUp`): 0-46 (media: 7.5, mediana: 3)
 - **Reportes de inexistencia** (`numNotThereReports`): 0 (120 casos)  y 1 (89 casos)
+
+```{r waze.routes.alerts.users, echo=FALSE, warning=FALSE}
+waze.routes.alerts %>% ggplot() +
+  geom_point(aes(x = leadAlert.numComments, y = leadAlert.numThumbsUp, colour = leadAlert.numNotThereReports %>% as.factor())) +
+  labs(colour = "leadAlert.numNotThereReports")
+```
 
 *Contexto Geográfico de Alertas*
 
 - **Calles más reportadas**:
-  - "Ruta 160": 132 alertas
-  - "Av. Pedro Aguirre Cerda": 65 alertas
-  - "Av. Los Carrera Poniente": 8 alertas
-  - "Av. Los Carrera": 4 alertas
+  - "Ruta 160": 176 alertas
+  - "Av. Pedro Aguirre Cerda": 108 alertas
+  - "Av. Los Carrera Poniente": 9 alertas
+  - "Av. Los Carrera": 8 alertas
 - **Ciudades involucradas**:
-  - "San Pedro de la Paz": 65 alertas
-  - "Concepción": 12 alertas
-  - Sin especificar: 132 alertas
+  - "San Pedro de la Paz": 108 alertas
+  - "Concepción": 17 alertas
+  - Sin especificar: 176 alertas
+
+```{r waze.routes.alerts.cities, echo=FALSE, warning=FALSE}
+waze.routes.alerts %>% ggplot() +
+  geom_bar(aes(y = leadAlert.street %>% fct_infreq() %>% fct_rev(), fill = leadAlert.city %>% fct_infreq())) +
+  labs(y = "leadAlert.street", fill = "leadAlert.city")
+```
 
 ### Procesamiento y Normalización de Datos
 
@@ -2534,47 +2588,6 @@ El sistema procesó 491736 registros de datos de rutas provenientes de la API de
 - "file" se convierte en factor
 - "updateTime" se divide por 1000 y se convierte en POSIXct con origen en "1970-01-01" y zona horaria "UTC"
 - Se crea la columna "weekday" siendo el día de la semana de "updateTime" y se convierte en factor
-
-**Estrategia de Extracción Multi-nivel**
-
-- **Estructura anidada**: Carpeta -> Subcarpeta -> Archivo JSON
-- **Procesamiento recursivo**: Manejo jerárquico de directorios
-- **Metadatos embebidos**: Preservación de contexto organizacional
-
-**Transformaciones Aplicadas**
-
-*Desagregación de Geometrías de Ruta*
-
-- **Problema original**: Arrays de coordenadas en campo `line`
-- **Solución**: Expansión punto por punto con índices secuenciales
-- **Campos creados**: `x`, `y`, `point_index`, `total_points`
-
-*Normalización de Alertas*
-
-- **Estructura compleja**: Objetos anidados en `leadAlert`
-- **Aplanamiento**: Extracción de 10 subcampos críticos
-- **Manejo de nulos**: Preservación de estructura para rutas sin alertas
-
-*Metadatos de Procedencia*
-
-- **Variables contextuales**:
-  - `date`: Extraído de nombre de carpeta (formato dd-mm-aaaa)
-  - `subfolder`: Categoría intermedia
-  - `file`: Identificador específico del archivo
-
-*Optimización de Tipos de Datos*
-
-- **Factores categóricos**: 14 variables convertidas
-- **Coordenadas numéricas**: Separación de latitud/longitud
-- **Fechas estandarizadas**: Conversión a POSIXct
-
-**Variables Críticas Procesadas**
-
-- `toName`, `fromName`, `name`, `type` -> Factor
-- `leadAlert.*` (10 campos) -> Normalizados
-- `broadcasterId`, `areaName` -> Factor
-- `date` -> POSIXct
-- `speed` -> Calculada (`length`/`time`)
 
 # Discretización de datos
 
