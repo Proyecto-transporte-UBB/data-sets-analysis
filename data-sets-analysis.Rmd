@@ -717,11 +717,11 @@ tracking.gps.df[tracking.gps.df$EVT_ESTADO_MOTOR_GPS == 0,] %>%
 - En "EVT_DISTACIA_A_SERVICIO", se reemplaza "," por "." y se convierte en numérico
 - "EVT_CARPETA" se convierte en factor
 - Se crea la columna "EVT_SEÑAL" a partir de los valores de la columna "EVT_GPS_DOP":
-  - `Excelente`: $\text{EVT_GPS_DOP} < 1$
-  - `Muy Buena`: $1 \leq \text{EVT_GPS_DOP} < 2$
-  - `Buena`: $2 \leq \text{EVT_GPS_DOP} < 5$
-  - `Regular`: $5 \leq \text{EVT_GPS_DOP} \leq 10$
-  - `Mala`: $\text{EVT_GPS_DOP} > 10$
+  - `Excelente`: $EVT GPS DOP < 1$
+  - `Muy Buena`: $1 \leq EVT GPS DOP < 2$
+  - `Buena`: $2 \leq EVT GPS DOP < 5$
+  - `Regular`: $5 \leq EVT GPS DOP \leq 10$
+  - `Mala`: $EVT GPS DOP > 10$
 
 ### Análisis por Unidad Operativa
 
@@ -2040,7 +2040,7 @@ waze.data %>% ggplot() +
     - San Pedro de la Paz: 2190 registros
     - Otras localidades: 3592 registros
 
-```{r waze.data.causes, echo=FALSE, warning=FALSE}
+```{r waze.data.cities, echo=FALSE, warning=FALSE}
 waze.data %>% ggplot() +
   geom_bar(aes(y = City %>% fct_infreq() %>% fct_rev(), fill = Cause %>% fct_infreq())) +
   labs(y = "City", fill = "Cause")
