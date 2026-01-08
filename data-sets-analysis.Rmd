@@ -336,31 +336,6 @@ interurban.bus.accidents.causes %>%
   labs(title = "5 causas principales", x = "Región", y = "Causa (CONASET)") +
   scale_x_discrete(labels = label_wrap_gen(width = 20)) +
   theme(axis.text.x = element_text(angle = 270, hjust = 1, vjust = 0.5))
-interurban.bus.accidents[interurban.bus.accidents$`Causa (CONASET)` %in% (interurban.bus.accidents %>%
-  count(`Causa (CONASET)`) %>%
-  slice_max(n, n = 5) %>%
-  pull(`Causa (CONASET)`)),] %>% 
-  ggplot() +
-  stat_bin2d(
-    aes(
-      x = Región,
-      y = `Causa (CONASET)` %>% fct_infreq() %>% fct_rev()
-    )
-  ) +
-  scale_fill_gradientn(
-    name = "Cantidad",
-    colors = c(
-      "red",
-      "orange",
-      "yellow",
-      "lightgreen",
-      "darkgreen"
-    )
-  ) +
-  labs(title = "5 causas principales", x = "Región", y = "Causa (CONASET)") +
-  scale_x_discrete(labels = label_wrap_gen(width = 15)) +
-  scale_y_discrete(labels = label_wrap_gen(width = 20)) +
-  theme(axis.text.x = element_text(angle = 270, hjust = 1, vjust = 0.5))
 ```
 
 ### Consecuencias y Severidad
