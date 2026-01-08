@@ -303,13 +303,10 @@ interurban.bus.accidents.n.top.causes <- interurban.bus.accidents[interurban.bus
   slice_max(n, n = 5) %>%
   pull(`Causa (CONASET)`)),]
 interurban.bus.accidents.causes <- data.frame(
-  `Causa (CONASET)` = interurban.bus.accidents.n.top.causes$`Causa (CONASET)`,
+  `Causa (CONASET)` = interurban.bus.accidents.n.top.causes$`Causa (CONASET)` %>% as.character() %>% as.factor(),
   Región = interurban.bus.accidents.n.top.causes$Región
 )
-interurban.bus.accidents[interurban.bus.accidents$`Causa (CONASET)` %in% (interurban.bus.accidents %>%
-  count(`Causa (CONASET)`) %>%
-  slice_max(n, n = 5) %>%
-  pull(`Causa (CONASET)`)),] %>%
+interurban.bus.accidents.n.top.causes %>%
   ggplot() +
   geom_bar(aes(
     y = `Causa (CONASET)` %>% fct_infreq() %>% fct_rev(),
@@ -318,11 +315,20 @@ interurban.bus.accidents[interurban.bus.accidents$`Causa (CONASET)` %in% (interu
   labs(y = "Causa (CONASET)", fill = "Región", title = "5 causas principales") +
   scale_fill_discrete(labels = label_wrap_gen(width = 20)) +
   scale_x_log10()
-
+cause.freq <- interurban.bus.accidents.causes %>%
+  count(Causa..CONASET.) %>%
+  arrange(n %>% desc())
+region.freq <- interurban.bus.accidents.causes %>% 
+  count(Región) %>%
+  arrange(n)
 interurban.bus.accidents.causes %>%
   count(Causa..CONASET., Región, .drop = F) %>%
   ggplot() +
-  geom_tile(aes(y = Causa..CONASET., x = Región, fill = n)) +
+  geom_tile(aes(
+    x = Causa..CONASET. %>% factor(levels = cause.freq$Causa..CONASET.),
+    y = Región %>% factor(levels = region.freq$Región),
+    fill = n
+  )) +
   scale_fill_gradientn(
     name = "Cantidad",
     colors = c(
@@ -333,7 +339,7 @@ interurban.bus.accidents.causes %>%
       "darkgreen"
     )
   ) +
-  labs(title = "5 causas principales", x = "Región", y = "Causa (CONASET)") +
+  labs(title = "5 causas principales", y = "Región", x = "Causa (CONASET)") +
   scale_x_discrete(labels = label_wrap_gen(width = 20)) +
   theme(axis.text.x = element_text(angle = 270, hjust = 1, vjust = 0.5))
 ```
