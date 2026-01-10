@@ -24,6 +24,7 @@ options(java.parameters = "-Xmx2048m")
 library(cowplot)
 library(data.table)
 library(dplyr)
+library(ggcorrplot)
 library(ggmap)
 library(ggplot2)
 library(ggspatial)
@@ -83,6 +84,11 @@ min.haversine.dist <- function(lat, lng, p.lat, p.lng) {
   dist[dist > 0] %>% min()
 }
 
+min.haversine.distances <- function(lat, lng) {
+  n <- min(lat %>% length(), lng %>% length())
+  1:n %>% sapply(., function(i) min.haversine.dist(lat[i], lng[i], lat[-i], lng[-i]))
+}
+
 haversine.distances <- function(lat, lng) {
   if(lat %>% length() <= 1 | lng %>% length() <= 1) return(0)
   lat.rad <- lat * pi / 180
@@ -101,6 +107,23 @@ haversine.distances <- function(lat, lng) {
   })
   return(distances)
 }
+
+is.outlier.m.n.sd <- function(x, dev = 2, func = function(n) n){
+  new.x <- x %>% func()
+  mean.x <- new.x %>% mean(na.rm = T)
+  sd.x <- new.x %>% sd(na.rm = T)
+  new.x < mean.x - dev * sd.x | new.x > mean.x + dev * sd.x
+}
+
+is.outlier.q <- function(x, dev = 1.5, func = function(n) n){
+  new.x <- x %>% func()
+  q1 <- new.x %>% quantile(1 / 4, na.rm = T)
+  q3 <- new.x %>% quantile(3 / 4, na.rm = T)
+  r.iq <- q3 - q1
+  new.x < q1 - dev * r.iq | new.x > q3 + dev * r.iq
+}
+
+weekdays <- c("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")
 ```
 
 ```{r save, eval=FALSE, include=FALSE}
@@ -209,6 +232,7 @@ interurban.bus.accidents$Zona <- interurban.bus.accidents$Zona %>% as.factor()
 interurban.bus.accidents$`Ubicación Relativa` <- interurban.bus.accidents$`Ubicación Relativa` %>% as.factor()
 interurban.bus.accidents$`Causa (CONASET)` <- interurban.bus.accidents$`Causa (CONASET)` %>% as.factor()
 interurban.bus.accidents$`Causa Accidente` <- interurban.bus.accidents$`Causa Accidente` %>% as.factor()
+interurban.bus.accidents$Ruta <- interurban.bus.accidents$Ruta %>% as.factor()
 interurban.bus.accidents %>% summary()
 difference <- interurban.bus.accidents$Fecha %>% max() - interurban.bus.accidents$Fecha %>% min()
 interurban.bus.accidents %>% nrow() / difference %>% as.numeric()
@@ -216,13 +240,30 @@ interurban.bus.accidents %>% nrow() / difference %>% as.numeric()
 
 El análisis comprende 6268 registros de siniestros de buses interurbanos ocurridos entre el 1 de enero de 2014 y el 29 de diciembre de 2023.
 
+### Matriz de correlación
+
+```{r interurban.bus.accidents.corr, echo=FALSE, message=FALSE, warning=FALSE}
+interurban.bus.accidents %>% mutate(
+  Fecha = Fecha %>% as.numeric(),
+  Región = `Cód-Región`,
+  Comuna = Comuna %>% as.numeric(),
+  `Tipo (CONASET)` = `Tipo (CONASET)` %>% as.numeric(),
+  Zona = Zona %>% as.numeric(),
+  `Causa (CONASET)` = `Causa (CONASET)` %>% as.numeric(),
+  Ruta = Ruta %>% as.numeric(),
+  `Ubicación Relativa` = `Ubicación Relativa` %>% as.numeric()
+) %>% select(-Año, -`Cód-Región`, -`Tipo Accidente`, -`Causa Accidente`, -`Calle Uno`, -`Calle Dos`, -Intersección) %>% cor() %>% ggcorrplot() +
+  theme(axis.text.x = element_text(angle = 270, hjust = 1, vjust = 0.5))
+```
+
+
 ### Granularidad temporal
 
 - Diferencia Mínima: 2 minutos
 - Diferencia Máxima: 10 días, 22 horas y 5 minutos
-- Diferencia Media: 14 horas, 7 minutos y 6 segundos
+- Diferencia Media: 14 horas, 7 minutos y 6 segundos (lineal); 6 horas, 46 minutos, 10.17 segundos (logarítmico)
 - Diferencia Mediana: 8 horas y 25 minutos
-- Desviación Standard: 18 horas y 56.73 segundos
+- Desviación Standard: 18 horas y 56.73 segundos (lineal); 4.01 segundos (logarítmico)
 
 ```{r interurban.bus.accidents.time, echo=FALSE, message=FALSE, warning=FALSE}
 differences <- (interurban.bus.accidents$Fecha - c(NA, interurban.bus.accidents$Fecha[1:(interurban.bus.accidents %>% nrow() - 1)])) %>% as.numeric()
@@ -232,6 +273,17 @@ ggplot() +
   geom_histogram(aes(x = positive.diff)) +
   scale_x_log10()
 ```
+
+**Outliers**
+
+```{r interurban.bus.accidents.time.ol, echo=FALSE, message=FALSE, warning=FALSE}
+is.outlier <- positive.diff %>% is.outlier.m.n.sd(func = log)
+ggplot() +
+  geom_histogram(aes(x = positive.diff, fill = is.outlier)) +
+  scale_x_log10()
+```
+
+Hay 264 outliers inferiores y 33 outliers superiores, dando un total de 297 outliers
 
 ### Distribución temporal
 
@@ -397,6 +449,7 @@ for(sev in severity$severity %>% levels()){
 - "Ubicación Relativa" se convierte en factor
 - "Causa (CONASET)" se convierte en factor
 - "Causa Accidente" se convierte en factor
+- "Ruta" se convierte en factor
 
 ## GH026929.xlsx
 
@@ -448,11 +501,11 @@ El dataset contiene 1726 registros de telemetría GPS capturados durante un per�
 
 ### Granularidad temporal
 
-- Diferencia Mínima: 0.55 segundos
-- Diferencia Máxima: 0.59 segundos
-- Diferencia Media: 0.55 segundos
-- Diferencia Mediana: 0.55 segundos
-- Desviación Standard: $5.42\times10^{-4}$ segundos
+- Diferencia Mínima: 0.055 segundos
+- Diferencia Máxima: 0.059 segundos
+- Diferencia Media: 0.055 segundos
+- Diferencia Mediana: 0.055 segundos
+- Desviación Standard: 0.000542 segundos
 
 ```{r gh026929.time, echo=FALSE, message=FALSE, warning=FALSE}
 differences <- (gh026929$date - c(NA, gh026929$date[1:(gh026929 %>% nrow() - 1)])) %>% as.numeric()
@@ -460,6 +513,16 @@ differences <- (gh026929$date - c(NA, gh026929$date[1:(gh026929 %>% nrow() - 1)]
 ggplot() +
   geom_histogram(aes(x = differences))
 ```
+
+**Outliers**
+
+```{r gh026929.time.ol, echo=FALSE, message=FALSE, warning=FALSE}
+is.outlier <- differences %>% is.outlier.q()
+ggplot() +
+  geom_histogram(aes(x = differences, fill = is.outlier))
+```
+
+Hay 53 outliers superiores
 
 ### Granularidad espacial
 
@@ -470,34 +533,59 @@ ggplot() +
 - Desviación Standard: 34.55 centímetros
 
 ```{r gh026929.space, echo=FALSE, message=FALSE, warning=FALSE}
-distances <- haversine.distances(
+distances <- min.haversine.distances(
   gh026929$`GPS (Lat.) [deg]`,
   gh026929$`GPS (Long.) [deg]`
 )
 #(distances * 100) %>% summary()
 ggplot() +
-  geom_histogram(aes(x = distances)) +
-  scale_y_log10()
+  geom_histogram(aes(x = distances))
 ```
+
+**Outliers**
+
+```{r gh026929.space.ol, echo=FALSE, message=FALSE, warning=FALSE}
+is.outlier <- distances %>% is.outlier.q()
+ggplot() +
+  geom_histogram(aes(x = distances, fill = is.outlier))
+```
+
+No hay outliers
 
 ### Parámetros de Velocidad
 
-- **Velocidad 3D**: Rango de 0.01 a 19.06 m/s (0.036 a 68.62 km/h)
-- **Velocidad promedio**: 9.1 m/s (32.76 km/h)
-- **Velocidad mediana**: 9.81 m/s (35.32 km/h), indicando una distribución sesgada hacia velocidades moderadas-altas
+- **Velocidad 3D**:
+  - Mínimo: 0.01 m/s = 0.036 km/h
+  - Máximo: 19.06 m/s = 68.62 km/h
+  - Media: 9.1 m/s = 32.76 km/h
+  - Mediana: 9.81 m/s = 35.32 km/h
+  - Desviación Standard: 6.3 m/s = 22.69 Km/h
 
 ```{r gh026929.speed, echo=FALSE, message=FALSE, warning=FALSE}
 gh026929 %>%
   ggplot() +
   geom_histogram(aes(x = `GPS (3D speed) [m/s]`)) +
-  labs(title = "Distribución de velocidades") +
-  scale_y_log10()
+  labs(title = "Distribución de velocidades")
 ```
+
+**Outliers**
+
+```{r gh026929.speed.ol, echo=FALSE, message=FALSE, warning=FALSE}
+is.outlier <- gh026929$`GPS (3D speed) [m/s]` %>% is.outlier.q()
+gh026929 %>% ggplot() +
+  geom_histogram(aes(x = `GPS (3D speed) [m/s]`, fill = is.outlier))
+```
+
+No hay outliers
 
 ### Calidad de Señal GPS
 
 - **Valor fix**: Constante en 3 para todos los registros, indicando que calculó su posición a partir de 3 satélites
-- **Precisión**: Oscila entre 121 y 158 m (media: 125.9 m, mediana: 125 m)
+- **Precisión**:
+  - Mínimo: 121 m
+  - Máximo: 158 m
+  - Media: 125.9 m
+  - Mediana: 125 m
 
 ```{r gh026929.precision, echo=FALSE, message=FALSE, warning=FALSE}
 gh026929 %>%
@@ -505,6 +593,17 @@ gh026929 %>%
   geom_histogram(aes(x = precision)) +
   labs(title = "Distribución de precisiones")
 ```
+
+**Outliers**
+
+```{r gh026929.precision.ol, echo=FALSE, message=FALSE, warning=FALSE}
+is.outlier <- gh026929$precision %>% is.outlier.q()
+gh026929 %>%
+  ggplot() +
+  geom_histogram(aes(x = precision, fill = is.outlier))
+```
+
+Hay 91 outliers superiores
 
 ### Aspectos Requieren Clarificación
 
@@ -643,9 +742,9 @@ El dataset consolidado comprende 21683856 registros de telemetría GPS provenien
 
 - Diferencia Mínima: 1 segundo
 - Diferencia Máxima: 25 días, 22 horas, 42 minutos, 36 segundos
-- Diferencia Media: 6 minutos, 51 segundos
+- Diferencia Media: 6 minutos, 51 segundos (lineal); 50.44 segundos (logarítmico)
 - Diferencia Mediana: 1 minuto, 1 segundo
-- Desviación Standard: 2 horas, 24 minutos, 17.9 segundos
+- Desviación Standard: 2 horas, 24 minutos, 17.9 segundos (lineal); 2.11 segundos (logarítmico)
 
 ```{r tracking.gps.df.time, echo=FALSE, message=FALSE, warning=FALSE}
 differences <- tracking.gps.df %>%
@@ -659,25 +758,28 @@ differences <- tracking.gps.df %>%
   pull(diff)
 positive.diff <- differences[differences > 0]
 #positive.diff %>% summary()
-diff.mean <- positive.diff %>% mean(na.rm = T)
-diff.median <- positive.diff %>% median(na.rm = T)
 ggplot() +
   geom_histogram(aes(x = positive.diff)) +
-  geom_vline(aes(xintercept = diff.mean, colour = "promedio")) +
-  geom_vline(aes(xintercept = diff.median, colour = "mediana")) +
-  scale_x_log10() +
-  scale_color_manual(
-    values = c("promedio" = "red", "mediana" = "green"),
-    breaks = c("promedio", "mediana")
-  )
+  scale_x_log10()
 ```
+
+**Outliers**
+
+```{r tracking.gps.df.time.ol, echo=FALSE, message=FALSE, warning=FALSE}
+is.outlier <- positive.diff %>% is.outlier.m.n.sd(func = log)
+ggplot() +
+  geom_histogram(aes(x = positive.diff, fill = is.outlier)) +
+  scale_x_log10()
+```
+
+Hay 495364 outliers inferiores y 195594 outliers superiores, dando un total de 680053 outliers
 
 ### Distribución temporal
 
 ```{r tracking.gps.df.month.time, echo=FALSE, message=FALSE, warning=FALSE}
 tracking.gps.df.dates <- data.frame(
   Hora = tracking.gps.df$EVT_GPS_TIME_CHILE_STR %>% hour(),
-  `Día de la Semana` = tracking.gps.df$EVT_GPS_TIME_CHILE_STR %>% weekdays()
+  `Día de la Semana` = tracking.gps.df$EVT_GPS_TIME_CHILE_STR %>% weekdays() %>% factor(levels = weekdays)
 )
 tracking.gps.df.dates %>%
   count(Hora, Día.de.la.Semana, .drop = F) %>%
@@ -700,9 +802,9 @@ tracking.gps.df.dates %>%
 
 - Distancia Mínima: 0
 - Distancia Máxima: 35.27 kilómetros
-- Distancia Media: 334 metros
+- Distancia Media: 334 metros (lineal); 214.26 metros (logarítmico)
 - Distancia Mediana: 240.1 metros
-- Desviación Standard: 919.54 metros
+- Desviación Standard: 919.54 metros (lineal); 3.04 metros (logarítmico)
 
 ```{r tracking.gps.df.space, echo=FALSE, message=FALSE, warning=FALSE}
 tracking.gps.df.distances <- tracking.gps.df %>%
@@ -718,15 +820,18 @@ tracking.gps.df.distances <- tracking.gps.df %>%
 #tracking.gps.df.distances %>% summary()
 ggplot() +
   geom_histogram(aes(x = tracking.gps.df.distances)) +
-  geom_vline(aes(xintercept = tracking.gps.df.distances %>% mean(na.rm = T), colour = "promedio")) +
-  geom_vline(aes(xintercept = tracking.gps.df.distances %>% median(na.rm = T), colour = "mediana")) +
-  scale_x_log10() +
-  scale_y_log10() +
-  scale_color_manual(
-    values = c("promedio" = "red", "mediana" = "green"),
-    breaks = c("promedio", "mediana")
-  )
+  scale_x_log10()
 ```
+**Outliers**
+
+```{r tracking.gps.df.space.ol, echo=FALSE, message=FALSE, warning=FALSE}
+is.outlier <- tracking.gps.df.distances %>% is.outlier.m.n.sd(func = function(n) ifelse(n > 0, n %>% log(), NA))
+ggplot() +
+  geom_histogram(aes(x = tracking.gps.df.distances, fill = is.outlier)) +
+  scale_x_log10()
+```
+
+Hay 1929562 outliers inferiores y 40637 outliers superiores, dando un total de 1970199 outliers
 
 ### Características Operacionales del Sistema
 
@@ -783,25 +888,45 @@ _Calidad de Señal GPS_
 - Regular: 592320 registros
 - Mala: 2200379 registros
 
+_EVT GPS DOP_
+
+- Mínimo: 1
+- Máximo: 498
+- Media: 2.57 (lineal); 1.43 (logarítmico)
+- Mediana: 1
+- Desviación Standard: 4.1 (lineal); 2.57 (logarítmico)
+
 ```{r tracking.gps.df.signal, echo=FALSE, message=FALSE, warning=FALSE}
 tracking.gps.df %>% ggplot() +
   geom_histogram(aes(x = EVT_GPS_DOP, fill = EVT_SEÑAL)) +
-  scale_x_log10() +
-  scale_y_log10()
+  scale_x_log10()
 ```
 
 _Velocidades Operacionales_
 
-- Rango: 0 - 193 km/h
-- Velocidad promedio: 21.69 km/h
-- Velocidad mediana: 19 km/h
+- Mínimo: 0 km/h
+- Máxmimo: 193 km/h
+- Media: 21.69 km/h (lineal); 22.32 km/h (logarítmico)
+- Mediana: 19 km/h
+- Desviación Standard: 19.27 km/h (lineal); 2.12 km/h (logarítmico)
 
 ```{r tracking.gps.df.speed, echo=FALSE, message=FALSE, warning=FALSE}
 tracking.gps.df %>% 
   ggplot() +
-  geom_histogram(aes(x = EVT_GPS_VEL))
+  geom_histogram(aes(x = EVT_GPS_VEL)) +
+  scale_x_log10()
 ```
 
+**Outliers**
+
+```{r tracking.gps.df.speed.ol, echo=FALSE, message=FALSE, warning=FALSE}
+is.outlier <- tracking.gps.df$EVT_GPS_VEL %>% is.outlier.m.n.sd(func = function(n) ifelse(n > 0, n %>% log(), NA))
+tracking.gps.df %>% ggplot() +
+  geom_histogram(aes(x = EVT_GPS_VEL, fill = is.outlier)) +
+  scale_x_log10()
+```
+
+Hay 5446945 outliers inferiores y 2068 outliers superiores, dando un total de 5449013 outliers
 
 _Estados del Sistema_
 
@@ -1056,7 +1181,7 @@ ggplot() +
 ```{r police.accidents.month.time, echo=FALSE, message=FALSE, warning=FALSE}
 police.accidents.dates <- data.frame(
   Hora = police.accidents$FECHA %>% hour(),
-  `Día de la Semana` = police.accidents$FECHA %>% weekdays()
+  `Día de la Semana` = police.accidents$FECHA %>% weekdays() %>% factor(levels = weekdays)
 )
 tracking.gps.df.dates %>%
   count(Hora, Día.de.la.Semana, .drop = F) %>%
@@ -1110,7 +1235,7 @@ police.accidents[police.accidents$COMUNA %in% (police.accidents %>%
 
 ```{r police.accidents.km, echo=FALSE, message=FALSE, warning=FALSE}
 police.accidents %>% ggplot() +
-  geom_density(aes(x = KM)) +
+  geom_density(aes(x = KM, colour = `MACRO TIPO`)) +
   scale_x_log10()
 ```
 
@@ -1356,9 +1481,9 @@ El dataset contiene 312 registros de incidentes de tráfico reportados a través
 
 - Diferencia Mínima: 1 minuto
 - Diferencia Máxima: 9 días, 13 horas, 50 minutos
-- Diferencia Media: 5 horas, 44 minutos, 36 segundos
+- Diferencia Media: 5 horas, 44 minutos, 36 segundos (lineal); 1 hora, 4 minutos, 36.08 segundos (logarítmico)
 - Diferencia Mediana: 1 hora, 5 minutos, 30 segundos
-- Desviación Standard: 20 horas, 32 minutos, 52.93 segundos
+- Desviación Standard: 20 horas, 32 minutos, 52.93 segundos (lineal); 6.31 segundos (logarítmico)
 
 ```{r radio.accidents.df.time, echo=FALSE, message=FALSE, warning=FALSE}
 radio.accidents.df.sorted <- radio.accidents.df[radio.accidents.df$Hora %>% order(),]
@@ -1369,13 +1494,23 @@ ggplot() +
   geom_histogram(aes(x = positive.diff)) +
   scale_x_log10()
 ```
+**Outliers**
+
+```{r radio.accidents.df.time.ol, echo=FALSE, message=FALSE, warning=FALSE}
+is.outlier <- positive.diff %>% is.outlier.m.n.sd(func = log)
+ggplot() +
+  geom_histogram(aes(x = positive.diff, fill = is.outlier)) +
+  scale_x_log10()
+```
+
+Hay 1929562 outliers inferiores y 40637 outliers superiores, dando un total de 1970199 outliers
 
 ### Distribución temporal
 
 ```{r radio.accidents.df.month.time, echo=FALSE, message=FALSE, warning=FALSE}
 radio.accidents.df.dates <- data.frame(
   Hora = radio.accidents.df$Hora %>% hour(),
-  `Día de la Semana` = radio.accidents.df$Hora %>% weekdays()
+  `Día de la Semana` = radio.accidents.df$Hora %>% weekdays() %>% factor(levels = weekdays)
 )
 radio.accidents.df.dates %>%
   count(Hora, Día.de.la.Semana, .drop = F) %>%
@@ -1398,12 +1533,12 @@ radio.accidents.df.dates %>%
 
 - Distancia Mínima: 22.19 centímetros
 - Distancia Máxima: 23.31 kilómetros
-- Distancia Media: 733.6 metros
+- Distancia Media: 733.6 metros (lineal); 130.55 metros (logarítmico)
 - Distancia Mediana: 141.1 metros
-- Desviación Standard: 2.49 kilómetros
+- Desviación Standard: 2.49 kilómetros (lineal); 6.48 metros (logarítmico)
 
 ```{r radio.accidents.df.space, echo=FALSE, message=FALSE, warning=FALSE}
-distances <- haversine.distances(
+distances <- min.haversine.distances(
   radio.accidents.df$lat,
   radio.accidents.df$lng
 )
@@ -1412,6 +1547,16 @@ ggplot() +
   geom_histogram(aes(x = distances)) +
   scale_x_log10()
 ```
+**Outliers**
+
+```{r radio.accidents.df.space.ol, echo=FALSE, message=FALSE, warning=FALSE}
+is.outlier <- distances %>% is.outlier.m.n.sd(func = log)
+ggplot() +
+  geom_histogram(aes(x = distances, fill = is.outlier)) +
+  scale_x_log10()
+```
+
+Hay 6 outliers inferiores y 8 outliers superiores, dando un total de 14 outliers
 
 ### Clasificación de Incidentes
 
@@ -1579,7 +1724,6 @@ differences <- chiguayante.speed.df.sorted %>%
     diff = if_else(same.dir, (Hora - prev.time) %>% as.numeric(), NA_real_)
   ) %>%
   pull(diff)
-#differences %>% summary()
 positive.differences <- differences[differences > 0]
 #positive.differences %>% summary()
 ggplot() +
@@ -1770,11 +1914,10 @@ differences <- vega.speed.df.sorted %>%
     diff = if_else(same.dir, (Hora - prev.time) %>% as.numeric(), NA_real_)
   ) %>%
   pull(diff)
-#differences %>% summary()
 positive.differences <- differences[differences > 0]
 #positive.differences %>% summary()
 ggplot() +
-  geom_density(aes(x = positive.differences)) +
+  geom_histogram(aes(x = positive.differences)) +
   scale_x_log10()
 ```
 
@@ -1916,7 +2059,7 @@ ggplot() +
 - Desviación Standard: 168 kilómetros
 
 ```{r gps.events.space, echo=FALSE, message=FALSE, warning=FALSE}
-distances <- haversine.distances(
+distances <- min.haversine.distances(
   gps.events$latitud_,
   gps.events$longitud_
 )
@@ -2015,7 +2158,7 @@ El inventario documenta 71 ubicaciones de cámaras de vigilancia y sus respectiv
 - Desviación Standard: 9.56 kilómetros
 
 ```{r biobio.inventary.space, echo=FALSE, message=FALSE, warning=FALSE}
-distances <- haversine.distances(
+distances <- min.haversine.distances(
   biobio.inventary$LATITUD,
   biobio.inventary$LONGITUD
 )
@@ -2269,7 +2412,7 @@ accidents %>% ggplot() +
 ```{r accidents.month.time, echo=FALSE, message=FALSE, warning=FALSE}
 accidents.dates <- data.frame(
   Mes = accidents$Date %>% month(),
-  `Día de la Semana` = accidents$Date %>% weekdays()
+  `Día de la Semana` = accidents$Date %>% weekdays() %>% factor(levels = weekdays)
 )
 accidents.dates %>%
   count(Mes, Día.de.la.Semana, .drop = F) %>%
@@ -2333,8 +2476,7 @@ positive.accidents.distances <- accidents.distances[accidents.distances > 0]
 #positive.accidents.distances %>% summary()
 ggplot() +
   geom_histogram(aes(x = positive.accidents.distances)) +
-  scale_x_log10() +
-  scale_y_log10()
+  scale_x_log10()
 ```
 
 ### Contexto Geográfico
@@ -2362,7 +2504,6 @@ accidents %>% ggplot() +
 ```{r accidents.reliability, echo=FALSE, message=FALSE, warning=FALSE}
 accidents %>% ggplot() +
   geom_histogram(aes(x = `Avg Reliability`, fill = City)) +
-  scale_y_log10() +
   scale_fill_discrete(labels = label_wrap_gen(width = 15))
 ```
 
@@ -2412,7 +2553,7 @@ waze.data %>% ggplot() +
 ```{r waze.data.month.time, echo=FALSE, message=FALSE, warning=FALSE}
 waze.data.dates <- data.frame(
   Mes = waze.data$Day %>% month(),
-  `Día de la Semana` = waze.data$Day %>% weekdays()
+  `Día de la Semana` = waze.data$Day %>% weekdays() %>% factor(levels = weekdays)
 )
 waze.data.dates %>%
   count(Mes, Día.de.la.Semana, .drop = F) %>%
@@ -2823,31 +2964,37 @@ El sistema procesó 766668 registros de datos de rutas provenientes de la API de
 
 - Diferencia Mínima: 1 minuto, 51.2 segundos
 - Diferencia máxima: 1 día, 23 horas, 25 minutos, 2.3 segundos
-- Diferencia Media: 5 minutos, 33 segundos
+- Diferencia Media: 5 minutos, 33 segundos (lineal); 5 minutos, 3.66 segundos (logarítmico)
 - Diferencia Mediana: 5 minutos
-- Desviación Standard: 30 minutos, 34.06 segundos
+- Desviación Standard: 30 minutos, 34.06 segundos (lineal); 1.18 segundos (logarítmico)
 
 ```{r waze.routes.time, echo=FALSE, message=FALSE, warning=FALSE}
 waze.routes.times <- waze.routes[waze.routes$updateTime %>% order(),] %>% distinct(updateTime)
 differences <- (waze.routes.times$updateTime - c(NA, waze.routes.times$updateTime[1:(waze.routes.times %>% nrow() - 1)])) %>% as.numeric()
-#differences %>% summary()
+positive.differences <- differences[differences > 0]
+#positive.differences %>% summary()
 ggplot() +
-  geom_vline(aes(xintercept = differences %>% mean(na.rm = T), colour = "promedio")) +
-  geom_vline(aes(xintercept = differences %>% median(na.rm = T), colour = "mediana")) +
-  geom_density(aes(x = differences)) +
-  scale_x_log10() +
-  scale_color_manual(
-    values = c("promedio" = "red", "mediana" = "green"),
-    breaks = c("promedio", "mediana")
-  )
+  geom_histogram(aes(x = positive.differences)) +
+  scale_x_log10()
 ```
+
+**Outliers**
+
+```{r waze.routes.time.ol, echo=FALSE, message=FALSE, warning=FALSE}
+is.outlier <- positive.differences %>% is.outlier.m.n.sd(func = log)
+ggplot() +
+  geom_histogram(aes(x = positive.differences, fill = is.outlier)) +
+  scale_x_log10()
+```
+
+Hay 39 outliers inferiores y 147 outliers superiores, dando un total de 186 outliers
 
 ### Distribución temporal
 
 ```{r waze.routes.month.time, echo=FALSE, message=FALSE, warning=FALSE}
 waze.routes.dates <- data.frame(
   Hora = waze.routes$updateTime %>% hour(),
-  `Día de la Semana` = waze.routes$updateTime %>% weekdays()
+  `Día de la Semana` = waze.routes$updateTime %>% weekdays() %>% factor(levels = weekdays)
 )
 waze.routes.dates %>%
   count(Hora, Día.de.la.Semana, .drop = F) %>%
@@ -2870,11 +3017,11 @@ waze.routes.dates %>%
 
 - Distancia Mínima: 32 centímetros
 - Distancia Máxima: 730.01 metros
-- Distancia Media: 53.59 metros
+- Distancia Media: 53.59 metros (lineal); 29.66 metros (logarítmico)
 - Distancia Mediana: 29.31 metros
-- Desviación Standard: 76.16 metros
+- Desviación Standard: 76.16 metros (lineal); 3.25 metros (logarítmico)
 
-```{r waze.routes.df.space, echo=FALSE, warning=FALSE}
+```{r waze.routes.df.space, echo=FALSE, message=FALSE, warning=FALSE}
 waze.routes.dist <- waze.routes.df %>%
   mutate(
     prev.x = x %>% lag(),
@@ -2893,6 +3040,17 @@ ggplot() +
   geom_histogram(aes(x = waze.routes.positive.dist)) +
   scale_x_log10()
 ```
+
+**Outliers**
+
+```{r waze.routes.df.space.ol, echo=FALSE, message=FALSE, warning=FALSE}
+is.outlier <- waze.routes.positive.dist %>% is.outlier.m.n.sd(func = log)
+ggplot() +
+  geom_histogram(aes(x = waze.routes.positive.dist, fill = is.outlier)) +
+  scale_x_log10()
+```
+
+Hay 91270 outliers inferiores y 36508 outliers superiores, dando un total de 127778 outliers
 
 ### Características del Dataset Consolidado
 
@@ -2932,31 +3090,66 @@ waze.routes %>% ggplot() +
 
 *Tiempos de Viaje*
 
-- **Tiempo histórico** (`historicTime`): 1-344 unidades (media: 20.74, mediana: 13)
-- **Tiempo estimado** (`time`): 0-952 unidades (media: 26.96, mediana: 16)
+- **Tiempo histórico** (`historicTime`):
+  - Mínimo: 1
+  - Máximo: 344
+  - Media: 20.74 (lineal); 14.72 (logarítmico)
+  - Mediana: 13
+  - Desviación Standard: 23.23 (lineal); 2.25 (logarítmico)
+- **Tiempo estimado** (`time`):
+  - Mínimo: 0
+  - Máxmimo: 952
+  - Media: 26.96 (lineal); 17.94 (logarítmico)
+  - Mediana: 16
+  - Desviación Standard: 34.7 (lineal); 2.29 (logarítmico)
 - **Unidades por confirmar**: Minutos o segundos (requiere validación)
 
 ```{r waze.routes.historicTime, echo=FALSE, message=FALSE, warning=FALSE}
 waze.routes %>% ggplot() +
-  geom_density(aes(x = historicTime)) +
+  geom_histogram(aes(x = historicTime)) +
   scale_x_log10()
 ```
 
+**Outliers**
+
+```{r waze.routes.historicTime.ol, echo=FALSE, message=FALSE, warning=FALSE}
+is.outlier <- waze.routes$historicTime %>% is.outlier.m.n.sd(func = function(n) ifelse(n > 0, n %>% log(), NA))
+waze.routes %>% ggplot() +
+  geom_histogram(aes(x = historicTime, fill = is.outlier)) +
+  scale_x_log10()
+```
+
+Hay 25041 outliers inferiores y 25421 outliers superiores, dando un total de 50462 outliers
+
 *Distancias y Velocidades*
-- **Longitud de ruta** (`length`): 0-1257 unidades (media: 175.4, mediana: 126)
+- **Longitud de ruta** (`length`):
+  - Mínimo: 0
+  - Máximo: 1257
+  - Media: 175.4 (lineal); 127.73 (logarítmico)
+  - Mediana: 126
+  - Desviación Standard: 189.09 (lineal); 2.09 (logarítmico)
 - **Velocidad calculada** (`speed`): 0.52-24 unidades (media: 8.06, mediana: 7.89)
+  - Mínimo: 0.52
+  - Máximo: 24
+  - Media: 8.06 (lineal)
+  - Mediana: 7.89
+  - Desviación Standard: 3.74 (lineal)
 - **Relación distancia/tiempo**: Consistente con tráfico urbano congestionado
 
-```{r waze.routes.length, echo=FALSE, message=FALSE, warning=FALSE}
+```{r waze.routes.speed, echo=FALSE, message=FALSE, warning=FALSE}
 waze.routes %>% ggplot() +
-  stat_density_2d(
-    aes(x = time, y = length, fill = after_stat(level), alpha = after_stat(level)),
-    geom = "polygon",
-    show.legend = F
-  ) +
-  scale_x_log10() +
-  scale_y_log10()
+  geom_histogram(aes(x = speed))
 ```
+
+**Outliers**
+
+```{r waze.routes.speed.ol, echo=FALSE, message=FALSE, warning=FALSE}
+is.outlier <- waze.routes$speed %>% is.outlier.m.n.sd()
+waze.routes %>% ggplot() +
+  geom_histogram(aes(x = speed, fill = is.outlier))
+```
+
+Hay 11 outliers inferiores y 33636 outliers superiores, dando un total de 33647 outliers
 
 **Sistema de Alertas Waze**
 
