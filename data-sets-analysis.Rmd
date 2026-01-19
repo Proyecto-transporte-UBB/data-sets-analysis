@@ -21,23 +21,24 @@ if (Sys.getenv("JAVA_HOME")=="") {
 knitr::opts_chunk$set(echo = TRUE)
 options(future.globals.maxSize = 8000 * 1024^2)
 options(java.parameters = "-Xmx2048m")
+library(ggspatial)
+library(OpenStreetMap)
 library(cowplot)
 library(data.table)
 library(dplyr)
 library(ggcorrplot)
 library(ggmap)
 library(ggplot2)
-library(ggspatial)
 library(googlesheets4)
 library(grid)
 library(gridExtra)
 library(gtfsio)
 library(httr)
+library(kableExtra)
 library(knitr)
 library(leaflet)
 library(lubridate)
 library(maps)
-library(OpenStreetMap)
 library(openxlsx)
 library(osmdata)
 library(prettymapr)
@@ -51,15 +52,17 @@ library(rnaturalearth)
 library(rnaturalearthdata)
 library(sf)
 library(stringr)
+library(tidygeocoder)
 library(tidyr)
 library(tidytransit)
 library(tidyverse)
 library(tidyxl)
 library(viridis)
+library(chilemapas)
 ```
 
 ```{r key.objects, include=FALSE}
-key.objects <- c("interurban.bus.accidents", "gh026929", "police.accidents", "radio.accidents.df", "chiguayante.speed.df", "vega.speed.df", "gps.events", "biobio.inventary", "trafic.alerts", "accidents", "waze.data", "meters.per.degree.lat", "meters.per.degree.lng", "quantum.data", "tracking.gps.df", "waze.routes", "waze.routes.df")
+key.objects <- c("interurban.bus.accidents", "gh026929", "police.accidents", "radio.accidents.df", "chiguayante.speed.df", "vega.speed.df", "gps.events", "biobio.inventary", "trafic.alerts", "accidents", "waze.data", "meters.per.degree.lat", "meters.per.degree.lng", "quantum.data", "tracking.gps.df", "tracking.gps.df.cor", "waze.routes", "waze.routes.df")
 
 sum.time <- function(dt.list){
   dt.list %>% sapply(., function(t){
@@ -108,22 +111,21 @@ haversine.distances <- function(lat, lng) {
   return(distances)
 }
 
-is.outlier.m.n.sd <- function(x, dev = 2, func = function(n) n){
-  new.x <- x %>% func()
-  mean.x <- new.x %>% mean(na.rm = T)
-  sd.x <- new.x %>% sd(na.rm = T)
-  new.x < mean.x - dev * sd.x | new.x > mean.x + dev * sd.x
+replace.na <- function(lst, r = 0) {
+  lst.1 <- lst
+  lst.1[lst.1 %>% is.na()] <- r
+  lst.1
 }
 
-is.outlier.q <- function(x, dev = 1.5, func = function(n) n){
-  new.x <- x %>% func()
-  q1 <- new.x %>% quantile(1 / 4, na.rm = T)
-  q3 <- new.x %>% quantile(3 / 4, na.rm = T)
-  r.iq <- q3 - q1
-  new.x < q1 - dev * r.iq | new.x > q3 + dev * r.iq
-}
+cities.map <- mapa_comunas %>%
+  st_as_sf() %>%
+  st_transform(crs = 4326) %>%
+  mutate(
+    nombre_comuna = codigos_territoriales$nombre_comuna[codigo_comuna %>% match(., codigos_territoriales$codigo_comuna)]
+  ) %>% st_make_valid()
 
 weekdays <- c("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")
+months <- c("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
 ```
 
 ```{r save, eval=FALSE, include=FALSE}
@@ -168,7 +170,8 @@ total.load.dt <- load.time.sys %>% sum.time()
 ```{r load.tracking.gps.df, include=FALSE}
 ml <- 8 * 1024^3
 ms <- 6 * 1024^3
-Sys.setenv("R_MAX_VSIZE" = "8Gb")
+R_MAX_VSIZE <- 8
+Sys.setenv("R_MAX_VSIZE" = paste0(R_MAX_VSIZE, "Gb"))
 memory.limit(size = ml)
 options(future.globals.maxSize = ms)
 gc()
@@ -184,8 +187,10 @@ tryCatch({
   print(paste("Error al cargar:", e$message))
   ml <- 2 * ml
   ms <- 2 * ms
+  R_MAX_VSIZE <- 2 * R_MAX_VSIZE
   memory.limit(size = ml)
   options(future.globals.maxSize = ms)
+  Sys.setenv("R_MAX_VSIZE" = paste0(R_MAX_VSIZE, "Gb"))
   gc()
 })
 while(!loaded){
@@ -196,8 +201,10 @@ while(!loaded){
     print(paste("Error al cargar:", e$message))
     ml <- 2 * ml
     ms <- 2 * ms
+    R_MAX_VSIZE <- 2 * R_MAX_VSIZE
     memory.limit(size = ml)
     options(future.globals.maxSize = ms)
+    Sys.setenv("R_MAX_VSIZE" = paste0(R_MAX_VSIZE, "Gb"))
     gc()
   })
 }
@@ -207,6 +214,56 @@ print(ko)
 print(dt.sys)
 load.time.sys[[ko]] <- dt.sys
 ```
+
+# Detección de outliers
+
+```{r is.outlier.f, include=FALSE}
+is.outlier.m.n.sd <- function(x, dev = 2, func = function(n) n){
+  new.x <- x %>% func()
+  mean.x <- new.x %>% mean(na.rm = T)
+  sd.x <- new.x %>% sd(na.rm = T)
+  new.x < mean.x - dev * sd.x | new.x > mean.x + dev * sd.x
+}
+
+is.outlier.q <- function(x, dev = 1.5, func = function(n) n){
+  new.x <- x %>% func()
+  q1 <- new.x %>% quantile(1 / 4, na.rm = T)
+  q3 <- new.x %>% quantile(3 / 4, na.rm = T)
+  r.iq <- q3 - q1
+  new.x < q1 - dev * r.iq | new.x > q3 + dev * r.iq
+}
+```
+
+$$
+\Theta = \left\{ x \in X \mid f\left( x \right) \notin R\left( f\left( X \right) \right) \right\}
+$$
+
+- $\Theta\subseteq \mathbb{R}$: Conjunto de outliers
+- $X\subseteq \mathbb{R}$: Conjunto de datos
+- $f: \mathbb{R}\to \mathbb{R}$: Función de escala (puede ser $f\left( x \right) = x$ o $f\left( x \right) = \ln \left( x \right)$)
+- $R: \mathcal{P}\left( \mathbb{R} \right)\to \mathcal{P}\left( \mathbb{R} \right)$: Función de intervalo
+
+## Función de intervalo
+
+### Método de media y desviación standard
+
+$$
+R\left( K \right) = \left[ \text{mean}\left( K \right) \pm n \times \text{sd}\left( K \right) \right]
+$$
+
+- $\text{mean}: \mathcal{P}\left( \mathbb{R} \right)\to \mathbb{R}$: Media aritmética
+- $\text{sd}: \mathcal{P}\left( \mathbb{R} \right)\to \mathbb{R}$: Desviación standard
+- $n \in \mathbb{R}$: Diferencia con la media en términos de desviaciones standard (por defecto: $n = 2$)
+
+### Método de cuartiles
+
+$$
+R\left( K \right) = \left[ Q_{1}\left( K \right) - n \times \text{IQ}\left( K \right), Q_{3}\left( K \right) + n \times \text{IQ}\left( K \right) \right]
+$$
+
+- $Q_{k}: \mathcal{P}\left( \mathbb{R} \right)\to \mathbb{R}$: k-ésimo cuartil
+- $\text{IQ}: \mathcal{P}\left( \mathbb{R} \right)\to \mathbb{R}$: Rango intercuartílico ($\text{IQ}\left( K \right) = Q_{3}\left( K \right) - Q_{1}\left( K \right)$)
+- $n \in \mathbb{R}$: Diferencia con los cuartiles en términos de rangos intercuartílicos (por defecto: $n = \frac{3}{2}$)
 
 # Extracción y caracterización de datos
 
@@ -243,17 +300,30 @@ El análisis comprende 6268 registros de siniestros de buses interurbanos ocurri
 ### Matriz de correlación
 
 ```{r interurban.bus.accidents.corr, echo=FALSE, message=FALSE, warning=FALSE}
-interurban.bus.accidents %>% mutate(
+interurban.bus.accidents.cor <- interurban.bus.accidents %>% mutate(
   Fecha = Fecha %>% as.numeric(),
   Región = `Cód-Región`,
   Comuna = Comuna %>% as.numeric(),
-  `Tipo (CONASET)` = `Tipo (CONASET)` %>% as.numeric(),
-  Zona = Zona %>% as.numeric(),
-  `Causa (CONASET)` = `Causa (CONASET)` %>% as.numeric(),
-  Ruta = Ruta %>% as.numeric(),
-  `Ubicación Relativa` = `Ubicación Relativa` %>% as.numeric()
-) %>% select(-Año, -`Cód-Región`, -`Tipo Accidente`, -`Causa Accidente`, -`Calle Uno`, -`Calle Dos`, -Intersección) %>% cor() %>% ggcorrplot() +
-  theme(axis.text.x = element_text(angle = 270, hjust = 1, vjust = 0.5))
+  `Tipo (CONASET)` = `Tipo (CONASET)` %>% as.numeric() %>% replace.na(),
+  Zona = Zona %>% as.numeric() %>% replace.na(),
+  `Causa (CONASET)` = `Causa (CONASET)` %>% as.numeric() %>% replace.na(),
+  Ruta = Ruta %>% as.numeric() %>% replace.na(),
+  `Ubicación Relativa` = `Ubicación Relativa` %>% as.numeric() %>% replace.na()
+) %>%
+  select(-Año, -`Cód-Región`, -`Tipo Accidente`, -`Causa Accidente`, -`Calle Uno`, -`Calle Dos`, -Intersección) %>%
+  cor(use = "pairwise.complete.obs")
+interurban.bus.accidents.cor %>%
+  ggcorrplot() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 8), axis.text.y = element_text(size = 8))
+interurban.bus.accidents.cor %>%
+  round(digits = 4) %>%
+  kable() %>%
+  kable_styling(full_width = F) %>%
+  column_spec(1, bold = T, border_right = T) %>%
+  add_header_above(c(" " = 1, "Variables" = ncol(interurban.bus.accidents.cor))) %>%
+  pack_rows("Variables", 1, nrow(interurban.bus.accidents.cor)) %>%
+  row_spec(0, angle = 90, extra_css = "vertical-align: bottom;") %>%
+  column_spec(2:ncol(interurban.bus.accidents.cor), width = "0.5cm")
 ```
 
 
@@ -274,7 +344,7 @@ ggplot() +
   scale_x_log10()
 ```
 
-**Outliers**
+**Outliers**: Media y desviación standard (logarítmico)
 
 ```{r interurban.bus.accidents.time.ol, echo=FALSE, message=FALSE, warning=FALSE}
 is.outlier <- positive.diff %>% is.outlier.m.n.sd(func = log)
@@ -285,12 +355,12 @@ ggplot() +
 
 Hay 264 outliers inferiores y 33 outliers superiores, dando un total de 297 outliers
 
-### Distribución temporal
+### Distribución Temporal
 
 ```{r interurban.bus.accidents.month.time, echo=FALSE, message=FALSE, warning=FALSE}
 interurban.bus.accidents.dates <- data.frame(
   Hora = interurban.bus.accidents$Fecha %>% hour(),
-  Mes = interurban.bus.accidents$Fecha %>% month()
+  Mes = months[interurban.bus.accidents$Fecha %>% month()] %>% factor(levels = months)
 )
 interurban.bus.accidents.dates %>%
   count(Hora, Mes, .drop = F) %>%
@@ -307,6 +377,13 @@ interurban.bus.accidents.dates %>%
     )
   ) +
   labs(y = "Hora", x = "Mes")
+interurban.bus.accidents.dates %>%
+  count(Hora, Mes, .drop = F) %>%
+  spread(key = Mes, value = n, fill = 0) %>%
+  as.data.frame() %>%
+  column_to_rownames("Hora") %>%
+  as.matrix() %>%
+  kable()
 ```
 
 ### Distribución Geográfica
@@ -327,6 +404,161 @@ interurban.bus.accidents[interurban.bus.accidents$Comuna %in% (interurban.bus.ac
   labs(y = "Comuna", fill = "Región", title = "10 comunas más frecuentes")
 ```
 
+### Distribución Espacio-Temporal
+
+**Región y Año**
+
+```{r interurban.bus.accidents.spacetime.0, echo=FALSE, message=FALSE, warning=FALSE}
+interurban.bus.accidents.spacetime <- data.frame(
+  Año = interurban.bus.accidents$Fecha %>% year(),
+  Mes = months[interurban.bus.accidents$Fecha %>% month()] %>% factor(levels = months),
+  Región = interurban.bus.accidents$Región,
+  Comuna = interurban.bus.accidents$Comuna
+)
+interurban.bus.accidents.spacetime %>%
+  count(Año, Región, .drop = F) %>%
+  ggplot() +
+  geom_tile(aes(y = Región, x = Año, fill = n)) +
+  scale_fill_gradientn(
+    name = "Cantidad",
+    colors = c(
+      "red",
+      "orange",
+      "yellow",
+      "lightgreen",
+      "darkgreen"
+    )
+  ) +
+  labs(y = "Región", x = "Año") +
+  scale_y_discrete(labels = label_wrap_gen(width = 20))
+interurban.bus.accidents.spacetime %>%
+  count(Año, Región, .drop = F) %>%
+  spread(key = Año, value = n, fill = 0) %>%
+  as.data.frame() %>%
+  column_to_rownames("Región") %>%
+  as.matrix() %>%
+  kable()
+```
+
+**Región y Mes**
+
+```{r interurban.bus.accidents.spacetime.1, echo=FALSE, message=FALSE, warning=FALSE}
+interurban.bus.accidents.spacetime %>%
+  count(Mes, Región, .drop = F) %>%
+  ggplot() +
+  geom_tile(aes(y = Región, x = Mes, fill = n)) +
+  scale_fill_gradientn(
+    name = "Cantidad",
+    colors = c(
+      "red",
+      "orange",
+      "yellow",
+      "lightgreen",
+      "darkgreen"
+    )
+  ) +
+  labs(y = "Región", x = "Mes") +
+  scale_y_discrete(labels = label_wrap_gen(width = 20))
+interurban.bus.accidents.spacetime %>%
+  count(Mes, Región, .drop = F) %>%
+  spread(key = Mes, value = n, fill = 0) %>%
+  as.data.frame() %>%
+  column_to_rownames("Región") %>%
+  as.matrix() %>%
+  kable()
+```
+
+**Comuna y Año**
+
+```{r interurban.bus.accidents.spacetime.2, echo=FALSE, message=FALSE, warning=FALSE}
+interurban.bus.accidents.spacetime[interurban.bus.accidents.spacetime$Comuna %in% (interurban.bus.accidents.spacetime %>%
+  count(Comuna) %>%
+  slice_max(n, n = 10) %>%
+  pull(Comuna)),] %>% mutate(
+    Comuna = Comuna %>% factor(levels = interurban.bus.accidents.spacetime %>%
+      count(Comuna) %>%
+        slice_max(n, n = 10) %>%
+        arrange(n %>% desc()) %>%
+        pull(Comuna) %>% rev()
+    )
+  ) %>%
+  count(Año, Comuna, .drop = F) %>%
+  ggplot() +
+  geom_tile(aes(y = Comuna, x = Año, fill = n)) +
+  scale_fill_gradientn(
+    name = "Cantidad",
+    colors = c(
+      "red",
+      "orange",
+      "yellow",
+      "lightgreen",
+      "darkgreen"
+    )
+  ) +
+  labs(y = "Comuna", x = "Año")
+interurban.bus.accidents.spacetime %>% mutate(
+    Comuna = Comuna %>% factor(levels = interurban.bus.accidents.spacetime %>%
+      count(Comuna) %>%
+        slice_max(n, n = interurban.bus.accidents.spacetime$Comuna %>%
+            levels() %>%
+            length()) %>%
+        arrange(n %>% desc()) %>%
+        pull(Comuna)
+    )
+  ) %>%
+  count(Año, Comuna, .drop = F) %>%
+  spread(key = Año, value = n, fill = 0) %>%
+  as.data.frame() %>%
+  column_to_rownames("Comuna") %>%
+  as.matrix() %>%
+  kable()
+```
+
+**Comuna y Mes**
+
+```{r interurban.bus.accidents.spacetime.3, echo=FALSE, message=FALSE, warning=FALSE}
+interurban.bus.accidents.spacetime[interurban.bus.accidents.spacetime$Comuna %in% (interurban.bus.accidents.spacetime %>%
+  count(Comuna) %>%
+  slice_max(n, n = 10) %>%
+  pull(Comuna)),] %>% mutate(
+    Comuna = Comuna %>% factor(levels = interurban.bus.accidents.spacetime %>%
+      count(Comuna) %>%
+        slice_max(n, n = 10) %>%
+        arrange(n %>% desc()) %>%
+        pull(Comuna) %>% rev()
+    )
+  ) %>%
+  count(Mes, Comuna, .drop = F) %>%
+  ggplot() +
+  geom_tile(aes(y = Comuna, x = Mes, fill = n)) +
+  scale_fill_gradientn(
+    name = "Cantidad",
+    colors = c(
+      "red",
+      "orange",
+      "yellow",
+      "lightgreen",
+      "darkgreen"
+    )
+  ) +
+  labs(y = "Comuna", x = "Mes")
+interurban.bus.accidents.spacetime %>% mutate(
+    Comuna = Comuna %>% factor(levels = interurban.bus.accidents.spacetime %>%
+      count(Comuna) %>%
+        slice_max(n, n = interurban.bus.accidents.spacetime$Comuna %>%
+            levels() %>%
+            length()) %>%
+        arrange(n %>% desc()) %>%
+        pull(Comuna)
+    )
+  ) %>%
+  count(Mes, Comuna, .drop = F) %>%
+  spread(key = Mes, value = n, fill = 0) %>%
+  as.data.frame() %>%
+  column_to_rownames("Comuna") %>%
+  as.matrix() %>%
+  kable()
+```
 
 ### Características de los Siniestros
 
@@ -393,7 +625,31 @@ interurban.bus.accidents.causes %>%
   ) +
   labs(title = "5 causas principales", y = "Región", x = "Causa (CONASET)") +
   scale_x_discrete(labels = label_wrap_gen(width = 20)) +
-  theme(axis.text.x = element_text(angle = 270, hjust = 1, vjust = 0.5))
+  theme(axis.text.x = element_text(angle = 90, hjust = 0, vjust = 0.5))
+interurban.bus.accidents.causes %>% mutate(
+    Causa..CONASET. = Causa..CONASET. %>% factor(levels = interurban.bus.accidents.causes %>%
+      count(Causa..CONASET.) %>%
+        slice_max(n, n = interurban.bus.accidents.causes$Causa..CONASET. %>%
+            levels() %>%
+            length()) %>%
+        arrange(n %>% desc()) %>%
+        pull(Causa..CONASET.)
+    ),
+    Región = Región %>% factor(levels = interurban.bus.accidents.causes %>%
+      count(Región) %>%
+        slice_max(n, n = interurban.bus.accidents.causes$Región %>%
+            levels() %>%
+            length()) %>%
+        arrange(n %>% desc()) %>%
+        pull(Región)
+    )
+  ) %>%
+  count(Causa..CONASET., Región, .drop = F) %>%
+  spread(key = Causa..CONASET., value = n, fill = 0) %>%
+  as.data.frame() %>%
+  column_to_rownames("Región") %>%
+  as.matrix() %>%
+  kable()
 ```
 
 ### Consecuencias y Severidad
@@ -492,7 +748,21 @@ gh026929.sf %>% st_write(.,
 )
 ```
 
-El dataset contiene 1726 registros de telemetría GPS capturados durante un período específico de operación vehicular, .
+El dataset contiene 1726 registros de telemetría GPS capturados durante un período específico de operación vehicular.
+
+### Matriz de correlación
+
+```{r gh026929.corr, echo=FALSE, message=FALSE, warning=FALSE}
+gh026929.cor <- gh026929 %>% mutate(
+  date = date %>% as.numeric()
+) %>%
+  select(-cts) %>%
+  cor(use = "pairwise.complete.obs")
+gh026929.cor %>%
+  ggcorrplot() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+gh026929.cor %>% kable()
+```
 
 ### Características Temporales
 
@@ -514,7 +784,7 @@ ggplot() +
   geom_histogram(aes(x = differences))
 ```
 
-**Outliers**
+**Outliers**: Cuartiles (lineal)
 
 ```{r gh026929.time.ol, echo=FALSE, message=FALSE, warning=FALSE}
 is.outlier <- differences %>% is.outlier.q()
@@ -524,7 +794,7 @@ ggplot() +
 
 Hay 53 outliers superiores
 
-### Granularidad espacial
+### Granularidad Espacial
 
 - Distancia Mínima: 8.9 milímetros
 - Distancia Máxima: 1.06 metros
@@ -542,7 +812,7 @@ ggplot() +
   geom_histogram(aes(x = distances))
 ```
 
-**Outliers**
+**Outliers**: Cuartiles (lineal)
 
 ```{r gh026929.space.ol, echo=FALSE, message=FALSE, warning=FALSE}
 is.outlier <- distances %>% is.outlier.q()
@@ -568,7 +838,7 @@ gh026929 %>%
   labs(title = "Distribución de velocidades")
 ```
 
-**Outliers**
+**Outliers**: Cuartiles (lineal)
 
 ```{r gh026929.speed.ol, echo=FALSE, message=FALSE, warning=FALSE}
 is.outlier <- gh026929$`GPS (3D speed) [m/s]` %>% is.outlier.q()
@@ -594,7 +864,7 @@ gh026929 %>%
   labs(title = "Distribución de precisiones")
 ```
 
-**Outliers**
+**Outliers**: Cuartiles (lineal)
 
 ```{r gh026929.precision.ol, echo=FALSE, message=FALSE, warning=FALSE}
 is.outlier <- gh026929$precision %>% is.outlier.q()
@@ -724,6 +994,36 @@ tracking.gps.df %>% summary()
 
 El dataset consolidado comprende 21683856 registros de telemetría GPS provenientes del sistema de monitoreo de transporte público DTPR, capturados durante el mes de agosto de 2025 a través de 31 unidades operativas diferentes.
 
+### Matriz de correlación
+
+```{r tracking.gps.df.corr.0, eval=FALSE, include=FALSE}
+tracking.gps.df.cor <- tracking.gps.df %>% mutate(
+  EVT_SERVICIO_ID = EVT_SERVICIO_ID %>% as.numeric() %>% replace.na(),
+  EVT_PPU = EVT_PPU %>% as.numeric() %>% replace.na(),
+  EVT_GPS_TIME_CHILE_STR = EVT_GPS_TIME_CHILE_STR %>% as.numeric(),
+  EVT_GPS_TIME_UTC_0 = EVT_GPS_TIME_UTC_0 %>% as.numeric(),
+  EVT_CARPETA = EVT_CARPETA %>% as.numeric() %>% replace.na()
+) %>%
+  select(-EVT_REGISTRO_ID, -EVT_SEÑAL) %>%
+  cor(use = "pairwise.complete.obs")
+```
+
+
+```{r tracking.gps.df.corr, echo=FALSE, message=FALSE, warning=FALSE}
+tracking.gps.df.cor %>%
+  ggcorrplot() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 8), axis.text.y = element_text(size = 8))
+tracking.gps.df.cor %>%
+  round(digits = 4) %>%
+  kable() %>%
+  kable_styling(full_width = F) %>%
+  column_spec(1, bold = T, border_right = T) %>%
+  add_header_above(c(" " = 1, "Variables" = ncol(tracking.gps.df.cor))) %>%
+  pack_rows("Variables", 1, nrow(tracking.gps.df.cor)) %>%
+  row_spec(0, angle = 90, extra_css = "vertical-align: bottom;") %>%
+  column_spec(2:ncol(tracking.gps.df.cor), width = "0.25cm")
+```
+
 ### Metadatos de Procesamiento
 
 - **Tiempo total de lectura**: 7 minutos 8.22 segundos
@@ -763,7 +1063,7 @@ ggplot() +
   scale_x_log10()
 ```
 
-**Outliers**
+**Outliers**: Media y desviación standard (logarítmico)
 
 ```{r tracking.gps.df.time.ol, echo=FALSE, message=FALSE, warning=FALSE}
 is.outlier <- positive.diff %>% is.outlier.m.n.sd(func = log)
@@ -774,7 +1074,7 @@ ggplot() +
 
 Hay 495364 outliers inferiores y 195594 outliers superiores, dando un total de 680053 outliers
 
-### Distribución temporal
+### Distribución Temporal
 
 ```{r tracking.gps.df.month.time, echo=FALSE, message=FALSE, warning=FALSE}
 tracking.gps.df.dates <- data.frame(
@@ -796,9 +1096,16 @@ tracking.gps.df.dates %>%
     )
   ) +
   labs(y = "Hora", x = "Día de la Semana")
+tracking.gps.df.dates %>%
+  count(Día.de.la.Semana, Hora, .drop = F) %>%
+  spread(key = Día.de.la.Semana, value = n, fill = 0) %>%
+  as.data.frame() %>%
+  column_to_rownames("Hora") %>%
+  as.matrix() %>%
+  kable()
 ```
 
-### Granularidad espacial
+### Granularidad Espacial
 
 - Distancia Mínima: 0
 - Distancia Máxima: 35.27 kilómetros
@@ -822,7 +1129,8 @@ ggplot() +
   geom_histogram(aes(x = tracking.gps.df.distances)) +
   scale_x_log10()
 ```
-**Outliers**
+
+**Outliers**: Media y desviación standard (logarítmico)
 
 ```{r tracking.gps.df.space.ol, echo=FALSE, message=FALSE, warning=FALSE}
 is.outlier <- tracking.gps.df.distances %>% is.outlier.m.n.sd(func = function(n) ifelse(n > 0, n %>% log(), NA))
@@ -832,6 +1140,39 @@ ggplot() +
 ```
 
 Hay 1929562 outliers inferiores y 40637 outliers superiores, dando un total de 1970199 outliers
+
+### Distribución Espacio-Temporal
+
+*Pendiente*
+
+```{r tracking.gps.df.spacetime.0, eval=FALSE, echo=FALSE, message=FALSE, warning=FALSE}
+tracking.gps.df.points <- tracking.gps.df %>%
+  st_as_sf(
+    coords = c("X_EVT_GPS_LON", "Y_EVT_GPS_LAT"),
+    crs = 4326
+  ) %>% st_make_valid()
+tracking.gps.df.cities <- st_join(tracking.gps.df.points, cities.map, join = st_intersects)
+tracking.gps.df.spacetime <- data.frame(
+  Semana = tracking.gps.df$EVT_GPS_TIME_CHILE_STR %>% floor_date(unit = "week", week_start = 1),
+  Día = tracking.gps.df$EVT_GPS_TIME_CHILE_STR %>% weekday() %>% factor(levels = weekdays)
+)
+tracking.gps.df.spacetime %>%
+  count(Año, Región, .drop = F) %>%
+  ggplot() +
+  geom_tile(aes(y = Región, x = Año, fill = n)) +
+  scale_fill_gradientn(
+    name = "Cantidad",
+    colors = c(
+      "red",
+      "orange",
+      "yellow",
+      "lightgreen",
+      "darkgreen"
+    )
+  ) +
+  labs(y = "Región", x = "Año") +
+  scale_y_discrete(labels = label_wrap_gen(width = 20))
+```
 
 ### Características Operacionales del Sistema
 
@@ -902,6 +1243,17 @@ tracking.gps.df %>% ggplot() +
   scale_x_log10()
 ```
 
+**Outliers**: Cuartiles (logarítmico)
+
+```{r tracking.gps.df.signal.ol, echo=FALSE, message=FALSE, warning=FALSE}
+is.outlier <- tracking.gps.df$EVT_GPS_DOP %>% is.outlier.q(func = log)
+tracking.gps.df %>% ggplot() +
+  geom_histogram(aes(x = EVT_GPS_DOP, fill = is.outlier)) +
+  scale_x_log10()
+```
+
+Hay 3759190 outliers superiores
+
 _Velocidades Operacionales_
 
 - Mínimo: 0 km/h
@@ -917,7 +1269,7 @@ tracking.gps.df %>%
   scale_x_log10()
 ```
 
-**Outliers**
+**Outliers**: Media y desviación standard (logarítmico)
 
 ```{r tracking.gps.df.speed.ol, echo=FALSE, message=FALSE, warning=FALSE}
 is.outlier <- tracking.gps.df$EVT_GPS_VEL %>% is.outlier.m.n.sd(func = function(n) ifelse(n > 0, n %>% log(), NA))
@@ -1153,6 +1505,36 @@ police.accidents %>% summary()
 
 El dataset comprende 5739 registros de accidentes de tránsito documentados por Carabineros de Chile durante un período concentrado de 30 días.
 
+### Matriz de correlación
+
+```{r police.accidents.corr, echo=FALSE, message=FALSE, warning=FALSE}
+police.accidents.cor <- police.accidents %>% mutate(
+  FECHA = FECHA %>% as.numeric(),
+  ZONA = ZONA %>% as.numeric() %>% replace.na(),
+  COMUNA = COMUNA %>% as.numeric() %>% replace.na(),
+  TIPO = TIPO %>% as.numeric() %>% replace.na(),
+  CAUSA = CAUSA %>% as.numeric() %>% replace.na(),
+  SECTOR = SECTOR %>% as.numeric() %>% replace.na(),
+  CALLE_1 = CALLE_1 %>% as.factor() %>% as.numeric() %>% replace.na(),
+  CALLE_2 = CALLE_2 %>% as.factor() %>% as.numeric() %>% replace.na(),
+  TRIBUNAL = TRIBUNAL %>% as.numeric() %>% replace.na(),
+  `MACRO TIPO` = `MACRO TIPO` %>% as.numeric() %>% replace.na()
+) %>%
+  cor(use = "pairwise.complete.obs")
+police.accidents.cor %>%
+  ggcorrplot() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 8), axis.text.y = element_text(size = 8))
+police.accidents.cor %>%
+  round(digits = 4) %>%
+  kable() %>%
+  kable_styling(full_width = F) %>%
+  column_spec(1, bold = T, border_right = T) %>%
+  add_header_above(c(" " = 1, "Variables" = ncol(police.accidents.cor))) %>%
+  pack_rows("Variables", 1, nrow(police.accidents.cor)) %>%
+  row_spec(0, angle = 90, extra_css = "vertical-align: bottom;") %>%
+  column_spec(2:ncol(police.accidents.cor), width = "0.5cm")
+```
+
 ### Período de Análisis
 
 - **Cobertura temporal**: 1 al 30 de marzo de 2025 (30 días)
@@ -1176,14 +1558,14 @@ ggplot() +
   labs(x = "Diferencia de tiempo entre registros (horas)")
 ```
 
-### Distribución temporal
+### Distribución Temporal
 
 ```{r police.accidents.month.time, echo=FALSE, message=FALSE, warning=FALSE}
 police.accidents.dates <- data.frame(
   Hora = police.accidents$FECHA %>% hour(),
   `Día de la Semana` = police.accidents$FECHA %>% weekdays() %>% factor(levels = weekdays)
 )
-tracking.gps.df.dates %>%
+police.accidents.dates %>%
   count(Hora, Día.de.la.Semana, .drop = F) %>%
   ggplot() +
   geom_tile(aes(y = Hora, x = Día.de.la.Semana, fill = n)) +
@@ -1198,6 +1580,13 @@ tracking.gps.df.dates %>%
     )
   ) +
   labs(y = "Hora", x = "Día de la Semana")
+police.accidents.dates %>%
+  count(Día.de.la.Semana, Hora, .drop = F) %>%
+  spread(key = Día.de.la.Semana, value = n, fill = 0) %>%
+  as.data.frame() %>%
+  column_to_rownames("Hora") %>%
+  as.matrix() %>%
+  kable()
 ```
 
 ### Distribución Geográfica
@@ -1248,6 +1637,182 @@ police.accidents %>% ggplot() +
 police.accidents %>% ggplot() +
   geom_density(aes(x = PARTE, colour = `MACRO TIPO`)) +
   scale_x_log10()
+```
+
+### Distribución Espacio-Temporal
+
+**Región y Semana**
+
+```{r police.accidents.spacetime.0, echo=FALSE, message=FALSE, warning=FALSE}
+police.accidents.spacetime <- data.frame(
+  Semana = police.accidents$FECHA %>% floor_date(unit = "week", week_start = 1),
+  Día = police.accidents$FECHA %>% weekdays() %>% factor(levels = weekdays),
+  Región = police.accidents$ZONA,
+  Comuna = police.accidents$COMUNA
+)
+police.accidents.spacetime %>%
+  count(Semana, Región, .drop = F) %>%
+  ggplot() +
+  geom_tile(aes(y = Región, x = Semana, fill = n)) +
+  scale_fill_gradientn(
+    name = "Cantidad",
+    colors = c(
+      "red",
+      "orange",
+      "yellow",
+      "lightgreen",
+      "darkgreen"
+    )
+  ) +
+  labs(y = "Región", x = "Semana") +
+  scale_y_discrete(labels = label_wrap_gen(width = 20))
+police.accidents.spacetime %>% mutate(
+    Región = Región %>% factor(levels = police.accidents.spacetime %>%
+      count(Región) %>%
+        slice_max(n, n = police.accidents.spacetime$Región %>%
+            levels() %>%
+            length()) %>%
+        arrange(n %>% desc()) %>%
+        pull(Región)
+    )
+  ) %>%
+  count(Semana, Región, .drop = F) %>%
+  spread(key = Semana, value = n, fill = 0) %>%
+  as.data.frame() %>%
+  column_to_rownames("Región") %>%
+  as.matrix() %>%
+  kable()
+```
+
+**Región y Día de la Semana**
+
+```{r police.accidents.spacetime.1, echo=FALSE, message=FALSE, warning=FALSE}
+police.accidents.spacetime %>%
+  count(Día, Región, .drop = F) %>%
+  ggplot() +
+  geom_tile(aes(y = Región, x = Día, fill = n)) +
+  scale_fill_gradientn(
+    name = "Cantidad",
+    colors = c(
+      "red",
+      "orange",
+      "yellow",
+      "lightgreen",
+      "darkgreen"
+    )
+  ) +
+  labs(y = "Región", x = "Día de la Semana") +
+  scale_y_discrete(labels = label_wrap_gen(width = 20))
+police.accidents.spacetime %>% mutate(
+    Región = Región %>% factor(levels = police.accidents.spacetime %>%
+      count(Región) %>%
+        slice_max(n, n = police.accidents.spacetime$Región %>%
+            levels() %>%
+            length()) %>%
+        arrange(n %>% desc()) %>%
+        pull(Región)
+    )
+  ) %>%
+  count(Día, Región, .drop = F) %>%
+  spread(key = Día, value = n, fill = 0) %>%
+  as.data.frame() %>%
+  column_to_rownames("Región") %>%
+  as.matrix() %>%
+  kable()
+```
+
+**Comuna y Semana**
+
+```{r police.accidents.spacetime.2, echo=FALSE, message=FALSE, warning=FALSE}
+police.accidents.spacetime[police.accidents.spacetime$Comuna %in% (police.accidents.spacetime %>%
+  count(Comuna) %>%
+  slice_max(n, n = 10) %>%
+  pull(Comuna)),] %>% mutate(
+    Comuna = Comuna %>% factor(levels = police.accidents.spacetime %>%
+      count(Comuna) %>%
+        slice_max(n, n = 10) %>%
+        arrange(n %>% desc()) %>%
+        pull(Comuna) %>% rev()
+    )
+  ) %>%
+  count(Semana, Comuna, .drop = F) %>%
+  ggplot() +
+  geom_tile(aes(y = Comuna, x = Semana, fill = n)) +
+  scale_fill_gradientn(
+    name = "Cantidad",
+    colors = c(
+      "red",
+      "orange",
+      "yellow",
+      "lightgreen",
+      "darkgreen"
+    )
+  ) +
+  labs(y = "Comuna", x = "Semana") +
+  scale_y_discrete(labels = label_wrap_gen(width = 20))
+police.accidents.spacetime %>% mutate(
+    Comuna = Comuna %>% factor(levels = police.accidents.spacetime %>%
+      count(Comuna) %>%
+        slice_max(n, n = police.accidents.spacetime$Comuna %>%
+            levels() %>%
+            length()) %>%
+        arrange(n %>% desc()) %>%
+        pull(Comuna)
+    )
+  ) %>%
+  count(Semana, Comuna, .drop = F) %>%
+  spread(key = Semana, value = n, fill = 0) %>%
+  as.data.frame() %>%
+  column_to_rownames("Comuna") %>%
+  as.matrix() %>%
+  kable()
+```
+
+**Comuna y Día de la Semana**
+
+```{r police.accidents.spacetime.3, echo=FALSE, message=FALSE, warning=FALSE}
+police.accidents.spacetime[police.accidents.spacetime$Comuna %in% (police.accidents.spacetime %>%
+  count(Comuna) %>%
+  slice_max(n, n = 10) %>%
+  pull(Comuna)),] %>% mutate(
+    Comuna = Comuna %>% factor(levels = police.accidents.spacetime %>%
+      count(Comuna) %>%
+        slice_max(n, n = 10) %>%
+        arrange(n %>% desc()) %>%
+        pull(Comuna) %>% rev()
+    )
+  ) %>%
+  count(Día, Comuna, .drop = F) %>%
+  ggplot() +
+  geom_tile(aes(y = Comuna, x = Día, fill = n)) +
+  scale_fill_gradientn(
+    name = "Cantidad",
+    colors = c(
+      "red",
+      "orange",
+      "yellow",
+      "lightgreen",
+      "darkgreen"
+    )
+  ) +
+  labs(y = "Comuna", x = "Día de la Semana") +
+  scale_y_discrete(labels = label_wrap_gen(width = 20))
+police.accidents.spacetime %>% mutate(
+    Comuna = Comuna %>% factor(levels = police.accidents.spacetime %>%
+      count(Comuna) %>%
+        slice_max(n, n = police.accidents.spacetime$Comuna %>%
+            levels() %>%
+            length()) %>%
+        arrange(n %>% desc()) %>%
+        pull(Comuna)
+    )
+  ) %>%
+  count(Día, Comuna, .drop = F) %>%
+  spread(key = Día, value = n, fill = 0) %>%
+  as.data.frame() %>%
+  column_to_rownames("Comuna") %>%
+  as.matrix() %>%
+  kable()
 ```
 
 ### Clasificación de Accidentes
@@ -1472,6 +2037,24 @@ radio.accidents.df.sf %>% st_write(.,
 
 El dataset contiene 312 registros de incidentes de tráfico reportados a través de sistemas de radio durante un período de 37 días.
 
+### Matriz de correlación
+
+```{r radio.accidents.df.corr, echo=FALSE, message=FALSE, warning=FALSE}
+radio.accidents.df.cor <- radio.accidents.df %>% mutate(
+  Hora = Hora %>% as.numeric(),
+  `es incidente de tráfico? (si/no)` = `es incidente de tráfico? (si/no)` %>% as.numeric() %>% replace.na(),
+  `Reporte completo? (SI/NO)` = `Reporte completo? (SI/NO)` %>% as.numeric() %>% replace.na(),
+  dir = dir %>% as.numeric() %>% replace.na(),
+  `Tipo de incidente` = `Tipo de incidente` %>% as.numeric() %>% replace.na()
+) %>%
+  select(-`Detalle (inicio/fin incidente, etc)`, -Localización, -Dirección, -Extra) %>%
+  cor(use = "pairwise.complete.obs")
+radio.accidents.df.cor %>%
+  ggcorrplot() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+radio.accidents.df.cor %>% round(digits = 4) %>% kable()
+```
+
 ### Período de Registro
 
 - **Duración**: 15 de julio al 20 de agosto de 2024
@@ -1494,7 +2077,8 @@ ggplot() +
   geom_histogram(aes(x = positive.diff)) +
   scale_x_log10()
 ```
-**Outliers**
+
+**Outliers**: Media y desviación standard (logarítmico)
 
 ```{r radio.accidents.df.time.ol, echo=FALSE, message=FALSE, warning=FALSE}
 is.outlier <- positive.diff %>% is.outlier.m.n.sd(func = log)
@@ -1505,7 +2089,7 @@ ggplot() +
 
 Hay 1929562 outliers inferiores y 40637 outliers superiores, dando un total de 1970199 outliers
 
-### Distribución temporal
+### Distribución Temporal
 
 ```{r radio.accidents.df.month.time, echo=FALSE, message=FALSE, warning=FALSE}
 radio.accidents.df.dates <- data.frame(
@@ -1527,9 +2111,16 @@ radio.accidents.df.dates %>%
     )
   ) +
   labs(y = "Hora", x = "Día de la Semana")
+radio.accidents.df.dates %>%
+  count(Día.de.la.Semana, Hora, .drop = F) %>%
+  spread(key = Día.de.la.Semana, value = n, fill = 0) %>%
+  as.data.frame() %>%
+  column_to_rownames("Hora") %>%
+  as.matrix() %>%
+  kable()
 ```
 
-### Granularidad espacial
+### Granularidad Espacial
 
 - Distancia Mínima: 22.19 centímetros
 - Distancia Máxima: 23.31 kilómetros
@@ -1547,7 +2138,8 @@ ggplot() +
   geom_histogram(aes(x = distances)) +
   scale_x_log10()
 ```
-**Outliers**
+
+**Outliers**: Media y desviación standard (logarítmico)
 
 ```{r radio.accidents.df.space.ol, echo=FALSE, message=FALSE, warning=FALSE}
 is.outlier <- distances %>% is.outlier.m.n.sd(func = log)
@@ -1557,6 +2149,76 @@ ggplot() +
 ```
 
 Hay 6 outliers inferiores y 8 outliers superiores, dando un total de 14 outliers
+
+### Distribución Espacio-Temporal
+
+**Comuna y Día de la Semana**
+
+```{r radio.accidents.df.spacetime.0, echo=FALSE, message=FALSE, warning=FALSE}
+radio.accidents.df.points <- radio.accidents.df %>%
+  st_as_sf(
+    coords = c("lng", "lat"),
+    crs = 4326
+  )
+radio.accidents.df.cities <- st_join(radio.accidents.df.points, cities.map, join = st_intersects)
+radio.accidents.df.spacetime <- data.frame(
+  Hora = radio.accidents.df$Hora %>% hour(),
+  Día = radio.accidents.df$Hora %>% weekdays() %>% factor(levels = weekdays),
+  Comuna = radio.accidents.df.cities$nombre_comuna %>% replace.na(r = "Concepción - San Pedro") %>% factor(levels = radio.accidents.df.cities$nombre_comuna %>% replace.na(r = "Concepción - San Pedro") %>% fct_infreq() %>% levels())
+)
+radio.accidents.df.spacetime %>%
+  count(Día, Comuna, .drop = F) %>%
+  ggplot() +
+  geom_tile(aes(y = Comuna %>% fct_rev(), x = Día, fill = n)) +
+  scale_fill_gradientn(
+    name = "Cantidad",
+    colors = c(
+      "red",
+      "orange",
+      "yellow",
+      "lightgreen",
+      "darkgreen"
+    )
+  ) +
+  labs(y = "Comuna", x = "Día de la Semana") +
+  scale_y_discrete(labels = label_wrap_gen(width = 20))
+radio.accidents.df.spacetime %>%
+  count(Comuna, Día, .drop = F) %>%
+  spread(key = Día, value = n, fill = 0) %>%
+  as.data.frame() %>%
+  column_to_rownames("Comuna") %>%
+  as.matrix() %>%
+  kable()
+```
+
+**Comuna y Hora**
+
+```{r radio.accidents.df.spacetime.1, echo=FALSE, message=FALSE, warning=FALSE}
+radio.accidents.df.spacetime %>%
+  count(Hora, Comuna, .drop = F) %>%
+  ggplot() +
+  geom_tile(aes(y = Comuna %>% fct_rev(), x = Hora, fill = n)) +
+  scale_fill_gradientn(
+    name = "Cantidad",
+    colors = c(
+      "red",
+      "orange",
+      "yellow",
+      "lightgreen",
+      "darkgreen"
+    )
+  ) +
+  labs(y = "Comuna", x = "Hora") +
+  scale_y_discrete(labels = label_wrap_gen(width = 20))
+radio.accidents.df.spacetime %>%
+  count(Comuna, Hora, .drop = F) %>%
+  spread(key = Hora, value = n, fill = 0) %>%
+  as.data.frame() %>%
+  column_to_rownames("Comuna") %>%
+  as.matrix() %>%
+  kable()
+```
+
 
 ### Clasificación de Incidentes
 
@@ -1698,6 +2360,23 @@ chiguayante.speed.df %>% summary()
 
 El dataset contiene 338 mediciones de velocidad vehicular capturadas en el paradero "Bdo O'Higgins - Arauco" de Chiguayante, monitoreando el flujo entre Concepción y Hualqui.
 
+### Matriz de correlación
+
+```{r chiguayante.speed.df.corr, echo=FALSE, message=FALSE, warning=FALSE}
+chiguayante.speed.df.cor <- chiguayante.speed.df %>% mutate(
+  Hora = Hora %>% as.numeric(),
+  Comentario = Comentario %>% as.numeric() %>% replace.na(),
+  `Lugar (dirección)` = `Lugar (dirección)` %>% as.numeric() %>% replace.na(),
+  dirección = dirección %>% as.numeric() %>% replace.na(),
+  Vehículo = Vehículo %>% as.numeric() %>% replace.na()
+) %>%
+  cor(use = "pairwise.complete.obs")
+chiguayante.speed.df.cor %>%
+  ggcorrplot() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+chiguayante.speed.df.cor %>% kable()
+```
+
 ### Contexto Operacional
 
 - **Ubicación**: Paradero "Bdo O'Higgins - Arauco", Chiguayante
@@ -1709,9 +2388,9 @@ El dataset contiene 338 mediciones de velocidad vehicular capturadas en el parad
 
 - Diferencia Mínima: 2 minutos
 - Diferencia Máxima: 2 horas, 50 minutos
-- Diferencia Media: 35 minutos, 55 segundos
+- Diferencia Media: 35 minutos, 55 segundos (lineal); 10 minutos, 43.7 segundos (logarítmico)
 - Diferencia Mediana: 6 minutos
-- Desviación Standard: 1 hora, 4 minutos, 2.76 segundos
+- Desviación Standard: 1 hora, 4 minutos, 2.76 segundos (lineal); 4.39 segundos (logarítmico)
 
 ```{r chiguayante.speed.df.time, echo=FALSE, message=FALSE, warning=FALSE}
 chiguayante.speed.df.sorted <- chiguayante.speed.df[chiguayante.speed.df$Hora %>% order(),]
@@ -1731,7 +2410,18 @@ ggplot() +
   scale_x_log10()
 ```
 
-### Distribución temporal
+**Outliers**: Cuartiles (logarítmico)
+
+```{r chiguayante.speed.df.time.ol, echo=FALSE, message=FALSE, warning=FALSE}
+is.outlier <- positive.differences %>% is.outlier.q(func = log)
+ggplot() +
+  geom_histogram(aes(x = positive.differences, fill = is.outlier)) +
+  scale_x_log10()
+```
+
+Hay 2 outliers superiores
+
+### Distribución Temporal
 
 ```{r chiguayante.speed.df.month.time, echo=FALSE, message=FALSE, warning=FALSE}
 chiguayante.speed.df.dates <- data.frame(
@@ -1753,6 +2443,13 @@ chiguayante.speed.df.dates %>%
     )
   ) +
   labs(y = "Hora", x = "Dirección")
+chiguayante.speed.df.dates %>%
+  count(Dirección, Hora, .drop = F) %>%
+  spread(key = Dirección, value = n, fill = 0) %>%
+  as.data.frame() %>%
+  column_to_rownames("Hora") %>%
+  as.matrix() %>%
+  kable()
 ```
 
 ### Análisis de Velocidades
@@ -1853,6 +2550,7 @@ for(sheet in directions) {
   vega.speed[[sheet]] <- df
 }
 vega.speed.df <- vega.speed %>% bind_rows()
+vega.speed.df <- vega.speed.df %>% fill(Hora, .direction = "down")
 vega.speed.df <- vega.speed.df[!(vega.speed.df$`Velocidad.[km/hr]` %>% is.na()),]
 vega.speed.df$Comentario[vega.speed.df$Comentario %in% c(
   "cola por funeral",
@@ -1886,6 +2584,22 @@ vega.speed.df %>% summary()
 
 El dataset contiene 432 mediciones de velocidad vehicular capturadas en el cruce de Briceños con Miraflores, monitoreando el flujo entre 21 de Mayo y Avenida Costanera a través del sector Miraflores.
 
+### Matriz de correlación
+
+```{r vega.speed.df.corr, echo=FALSE, message=FALSE, warning=FALSE}
+vega.speed.df.cor <- vega.speed.df %>% mutate(
+  Hora = Hora %>% as.numeric(),
+  Comentario = Comentario %>% as.numeric() %>% replace.na(),
+  `Lugar.(dirección)` = `Lugar.(dirección)` %>% as.numeric() %>% replace.na(),
+  dirección = dirección %>% as.numeric() %>% replace.na()
+) %>%
+  cor(use = "pairwise.complete.obs")
+vega.speed.df.cor %>%
+  ggcorrplot() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+vega.speed.df.cor %>% kable()
+```
+
 ### Contexto Operacional
 
 - **Ubicación**: Esquina Briceños con Miraflores, La Vega
@@ -1899,9 +2613,9 @@ El dataset contiene 432 mediciones de velocidad vehicular capturadas en el cruce
 
 - Diferencia Mínima: 1 minuto
 - Diferencia Máxima: 2 horas, 3 minutos
-- Diferencia Media: 3 minutos, 40.5 segundos
+- Diferencia Media: 3 minutos, 40.5 segundos (lineal); 1 minuto, 56.08 segundos (logarítmico)
 - Diferencia Mediana: 2 minutos
-- Desviación Standard: 13 minutos, 10.19 segundos
+- Desviación Standard: 13 minutos, 10.19 segundos (lineal); 2.09 segundos (logarítmico)
 
 ```{r vega.speed.df.time, echo=FALSE, message=FALSE, warning=FALSE}
 vega.speed.df.sorted <- vega.speed.df[vega.speed.df$Hora %>% order(),]
@@ -1921,7 +2635,18 @@ ggplot() +
   scale_x_log10()
 ```
 
-### Distribución temporal
+**Outliers**: Cuartiles (logarítmico)
+
+```{r vega.speed.df.time.ol, echo=FALSE, message=FALSE, warning=FALSE}
+is.outlier <- positive.differences %>% is.outlier.q(func = log)
+ggplot() +
+  geom_histogram(aes(x = positive.differences, fill = is.outlier)) +
+  scale_x_log10()
+```
+
+Hay 2 outliers superiores
+
+### Distribución Temporal
 
 ```{r vega.speed.df.month.time, echo=FALSE, message=FALSE, warning=FALSE}
 vega.speed.df.dates <- data.frame(
@@ -1943,6 +2668,12 @@ vega.speed.df.dates %>%
     )
   ) +
   labs(y = "Hora", x = "Dirección")
+vega.speed.df.dates %>%
+  count(Dirección, Hora, .drop = F) %>%
+  spread(key = Dirección, value = n, fill = 0) %>%
+  column_to_rownames("Hora") %>%
+  as.matrix() %>%
+  kable()
 ```
 
 ### Análisis de Velocidades
@@ -2026,6 +2757,30 @@ gps.events.sf %>% st_write(.,
 
 El dataset contiene 1000 eventos registrados por sistemas GPS vehiculares, capturando transiciones de estado en una ventana temporal específica.
 
+### Matriz de correlación
+
+```{r gps.events.corr, echo=FALSE, message=FALSE, warning=FALSE}
+gps.events.cor <- gps.events %>% mutate(
+  fecha_auto = fecha_auto %>% as.numeric(),
+  fecha_gps_ = fecha_gps_ %>% as.numeric(),
+  evento_ = evento_ %>% as.numeric() %>% replace.na(),
+  direccion_ = direccion_ %>% as.character() %>% as.numeric() %>% replace.na()
+) %>%
+  cor(use = "pairwise.complete.obs")
+gps.events.cor %>%
+  ggcorrplot() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+gps.events.cor %>%
+  round(digits = 4) %>%
+  kable() %>%
+  kable_styling(full_width = F) %>%
+  column_spec(1, bold = T, border_right = T) %>%
+  add_header_above(c(" " = 1, "Variables" = ncol(gps.events.cor))) %>%
+  pack_rows("Variables", 1, nrow(gps.events.cor)) %>%
+  row_spec(0, angle = 90, extra_css = "vertical-align: bottom;") %>%
+  column_spec(2:ncol(gps.events.cor), width = "0.5cm")
+```
+
 ### Período de Monitoreo
 
 - **Fecha de referencia**: Transición año nuevo 2024-2025
@@ -2037,26 +2792,39 @@ El dataset contiene 1000 eventos registrados por sistemas GPS vehiculares, captu
 
 - Diferencia Mínima: 1 segundo
 - Diferencia Máxima: 1 minuto, 13 segundos
-- Diferencia Media: 15.03 segundos
+- Diferencia Media: 15.03 segundos (lineal); 3.91 segundos (logarítmico)
 - Diferencia Mediana: 1 segundo
-- Desviación Standard: 18.82 segundos
+- Desviación Standard: 18.82 segundos (lineal); 5.82 segundos (logarítmico)
 
 ```{r gps.events.time, echo=FALSE, message=FALSE, warning=FALSE}
 gps.events.odd <- gps.events[1:(gps.events %>% nrow()) %% 2 == 1,]
 differences <- (gps.events.odd$fecha_auto - c(NA, gps.events.odd$fecha_auto[1:(gps.events.odd %>% nrow() - 1)])) %>% as.numeric()
-#differences[differences > 0] %>% summary()
+positive.differences <- differences[differences > 0]
+#positive.differences %>% summary()
 ggplot() +
-  geom_histogram(aes(x = differences[differences > 0])) +
-  labs(x = "differences")
+  geom_histogram(aes(x = positive.differences)) +
+  labs(x = "differences") +
+  scale_x_log10()
 ```
 
-### Granularidad espacial
+**Outliers**: Cuartiles (logarítmico)
+
+```{r gps.events.time.ol, echo=FALSE, message=FALSE, warning=FALSE}
+is.outlier <- positive.differences %>% is.outlier.q(func = log)
+ggplot() +
+  geom_histogram(aes(x = positive.differences, fill = is.outlier)) +
+  scale_x_log10()
+```
+
+No hay outliers
+
+### Granularidad Espacial
 
 - Distancia Mínima: 1.14 metros
 - Distancia Máxima: 496.19 kilómetros
-- Distancia Media: 65.5 kilómetros
+- Distancia Media: 65.5 kilómetros (lineal); 14.58 metros (logarítmico)
 - Distancia Mediana: 4.59 metros
-- Desviación Standard: 168 kilómetros
+- Desviación Standard: 168.04 kilómetros (lineal); 63.39 metros (logarítmico)
 
 ```{r gps.events.space, echo=FALSE, message=FALSE, warning=FALSE}
 distances <- min.haversine.distances(
@@ -2068,6 +2836,17 @@ ggplot() +
   geom_histogram(aes(x = distances)) +
   scale_x_log10()
 ```
+
+**Outliers**: Cuartiles (logarítmico)
+
+```{r gps.events.space.ol, echo=FALSE, message=FALSE, warning=FALSE}
+is.outlier <- distances %>% is.outlier.q(func = log)
+ggplot() +
+  geom_histogram(aes(x = distances, fill = is.outlier)) +
+  scale_x_log10()
+```
+
+Hay 132 outliers superiores
 
 ### Distribución de Estados Vehiculares
 
@@ -2149,13 +2928,44 @@ biobio.inventary.sf %>% st_write(.,
 
 El inventario documenta 71 ubicaciones de cámaras de vigilancia y sus respectivos sistemas de codificación de video desplegados en la Región del Biobío, representando la infraestructura de monitoreo vial regional.
 
-### Granularidad espacial
+### Matriz de correlación
+
+```{r biobio.inventary.corr, echo=FALSE, message=FALSE, warning=FALSE}
+biobio.inventary.cor <- biobio.inventary %>% mutate(
+  COMUNA = COMUNA %>% as.numeric() %>% replace.na(),
+  ESTADO = ESTADO %>% as.numeric() %>% replace.na(),
+  `FECHA INTEGRACION` = `FECHA INTEGRACION` %>% as.numeric(),
+  `TIPO DE ENLACE` = `TIPO DE ENLACE` %>% as.numeric() %>% replace.na(),
+  PROVEEDOR = PROVEEDOR %>% as.numeric() %>% replace.na(),
+  `MARCA DE LA CÁMARA` = `MARCA DE LA CÁMARA` %>% as.numeric() %>% replace.na(),
+  `MODELO DE LA CÁMARA` = `MODELO DE LA CÁMARA` %>% as.numeric() %>% replace.na(),
+  `MARCA DEL CODIFICADOR DE VIDEO` = `MARCA DEL CODIFICADOR DE VIDEO` %>% as.numeric() %>% replace.na(),
+  `MODELO DEL CODIFICADOR DE VIDEO` = `MODELO DEL CODIFICADOR DE VIDEO` %>% as.numeric() %>% replace.na(),
+  REGIÓN = REGIÓN %>% as.numeric() %>% replace.na()
+) %>%
+  select(-NOMBRE, -`NÚMERO DE SERIE DE LA CÁMARA`, -`NÚMERO DE SERIE DEL CODIFICADOR DE VIDEO`) %>%
+  cor(use = "pairwise.complete.obs")
+biobio.inventary.cor %>%
+  ggcorrplot() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 8), axis.text.y = element_text(size = 8))
+biobio.inventary.cor %>%
+  round(digits = 4) %>%
+  kable() %>%
+  kable_styling(full_width = F) %>%
+  column_spec(1, bold = T, border_right = T) %>%
+  add_header_above(c(" " = 1, "Variables" = ncol(biobio.inventary.cor))) %>%
+  pack_rows("Variables", 1, nrow(biobio.inventary.cor)) %>%
+  row_spec(0, angle = 90, extra_css = "vertical-align: bottom;") %>%
+  column_spec(2:ncol(biobio.inventary.cor), width = "0.5cm")
+```
+
+### Granularidad Espacial
 
 - Distancia Mínima: 169.3 metros
 - Distancia Máxima: 81 kilómetros
-- Distancia Media: 1.95 kilómetros
+- Distancia Media: 1.95 kilómetros (lineal); 613.1 metros (logarítmico)
 - Distancia Mediana: 519.8 metros
-- Desviación Standard: 9.56 kilómetros
+- Desviación Standard: 9.56 kilómetros (lineal); 2.65 metros (logarítmico)
 
 ```{r biobio.inventary.space, echo=FALSE, message=FALSE, warning=FALSE}
 distances <- min.haversine.distances(
@@ -2167,6 +2977,17 @@ ggplot() +
   geom_histogram(aes(x = distances)) +
   scale_x_log10()
 ```
+
+**Outliers**: Cuartiles (logarítmico)
+
+```{r biobio.inventary.space.ol, echo=FALSE, message=FALSE, warning=FALSE}
+is.outlier <- distances %>% is.outlier.q(func = log)
+ggplot() +
+  geom_histogram(aes(x = distances, fill = is.outlier)) +
+  scale_x_log10()
+```
+
+Hay 3 oultiers superiores
 
 ### Distribución Geográfica
 
@@ -2286,19 +3107,62 @@ trafic.alerts.sf %>% st_write(.,
 
 El dataset comprende 281759 alertas de tráfico generadas por usuarios de Waze, representando un año completo de reportes ciudadanos sobre condiciones viales en el Gran Concepción.
 
+### Matriz de correlación
+
+```{r trafic.alerts.corr, echo=FALSE, message=FALSE, warning=FALSE}
+trafic.alerts.cor <- trafic.alerts %>% mutate(
+  Date = Date %>% as.numeric(),
+  Country = Country %>% as.numeric() %>% replace.na(),
+  City = City %>% as.numeric() %>% replace.na(),
+  Street = Street %>% as.factor() %>% as.numeric() %>% replace.na(),
+  Type = Type %>% as.numeric() %>% replace.na(),
+  Subtype = Subtype %>% as.numeric() %>% replace.na()
+) %>%
+  cor(use = "pairwise.complete.obs")
+trafic.alerts.cor %>%
+  ggcorrplot() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+trafic.alerts.cor %>% kable()
+```
+
 ### Período de Análisis
 
 - **Cobertura temporal**: 23 de junio de 2023 - 15 de mayo de 2024
 - **Duración**: 327 de datos continuos
 - **Registros diarios promedio**: 861.65 alertas por día
 
-```{r trafic.alerts.time, echo=FALSE, message=FALSE, warning=FALSE}
-trafic.alerts %>% ggplot() +
-  geom_histogram(aes(x = Date, fill = City)) +
-  scale_fill_discrete(labels = label_wrap_gen(width = 15))
+### Distribución Temporal
+
+```{r trafic.alerts.month.time, echo=FALSE, message=FALSE, warning=FALSE}
+trafic.alerts.dates <- data.frame(
+  Día = trafic.alerts$Date %>% weekdays() %>% factor(levels = weekdays),
+  Mes = months[trafic.alerts$Date %>% month()] %>% factor(levels = months)
+)
+trafic.alerts.dates %>%
+  count(Día, Mes, .drop = F) %>%
+  ggplot() +
+  geom_tile(aes(y = Día %>% fct_rev(), x = Mes, fill = n)) +
+  scale_fill_gradientn(
+    name = "Cantidad",
+    colors = c(
+      "red",
+      "orange",
+      "yellow",
+      "lightgreen",
+      "darkgreen"
+    )
+  ) +
+  labs(y = "Día de la Semana", x = "Mes")
+trafic.alerts.dates %>%
+  count(Día, Mes, .drop = F) %>%
+  spread(key = Mes, value = n, fill = 0) %>%
+  as.data.frame() %>%
+  column_to_rownames("Día") %>%
+  as.matrix() %>%
+  kable()
 ```
 
-### Contexto Geográfico
+### Distribución Geográfica
 
 - **Distribución por ciudad**:
     - Concepción: 130747 alertas
@@ -2311,6 +3175,69 @@ trafic.alerts %>% ggplot() +
   geom_bar(aes(y = City %>% fct_infreq() %>% fct_rev())) +
   labs(y = "City") +
   scale_x_log10()
+```
+
+### Distribución Espacio-Temporal
+
+**Comuna y Mes**
+
+```{r trafic.alerts.spacetime.0, echo=FALSE, message=FALSE, warning=FALSE}
+trafic.alerts.spacetime <- data.frame(
+  Mes = months[trafic.alerts$Date %>% month()] %>% factor(levels = months),
+  Día = trafic.alerts$Date %>% weekdays() %>% factor(levels = weekdays),
+  Comuna = trafic.alerts$City %>% factor(levels = trafic.alerts$City %>% fct_infreq() %>% levels())
+)
+trafic.alerts.spacetime %>%
+  count(Mes, Comuna, .drop = F) %>%
+  ggplot() +
+  geom_tile(aes(y = Comuna %>% fct_rev(), x = Mes, fill = n)) +
+  scale_fill_gradientn(
+    name = "Cantidad",
+    colors = c(
+      "red",
+      "orange",
+      "yellow",
+      "lightgreen",
+      "darkgreen"
+    )
+  ) +
+  labs(y = "Comuna", x = "Mes") +
+  scale_y_discrete(labels = label_wrap_gen(width = 20))
+trafic.alerts.spacetime %>%
+  count(Comuna, Mes, .drop = F) %>%
+  spread(key = Mes, value = n, fill = 0) %>%
+  as.data.frame() %>%
+  column_to_rownames("Comuna") %>%
+  as.matrix() %>%
+  kable()
+```
+
+**Comuna y Día de la Semana**
+
+```{r trafic.alerts.1, echo=FALSE, message=FALSE, warning=FALSE}
+trafic.alerts.spacetime %>%
+  count(Día, Comuna, .drop = F) %>%
+  ggplot() +
+  geom_tile(aes(y = Comuna %>% fct_rev(), x = Día, fill = n)) +
+  scale_fill_gradientn(
+    name = "Cantidad",
+    colors = c(
+      "red",
+      "orange",
+      "yellow",
+      "lightgreen",
+      "darkgreen"
+    )
+  ) +
+  labs(y = "Comuna", x = "Día de la Semana") +
+  scale_y_discrete(labels = label_wrap_gen(width = 20))
+trafic.alerts.spacetime %>%
+  count(Comuna, Día, .drop = F) %>%
+  spread(key = Día, value = n, fill = 0) %>%
+  as.data.frame() %>%
+  column_to_rownames("Comuna") %>%
+  as.matrix() %>%
+  kable()
 ```
 
 ### Clasificación de Alertas
@@ -2395,6 +3322,22 @@ accidents.sf %>% st_write(.,
 
 El dataset contiene 281981 registros de accidentes de tránsito, proporcionando una visión detallada de la siniestralidad vial en el Gran Concepción durante un período de 11 meses.
 
+### Matriz de correlación
+
+```{r accidents.corr, echo=FALSE, message=FALSE, warning=FALSE}
+accidents.cor <- accidents %>% mutate(
+  Date = Date %>% as.numeric(),
+  Country = Country %>% as.numeric() %>% replace.na(),
+  City = City %>% as.numeric() %>% replace.na(),
+  Street = Street %>% as.factor() %>% as.numeric() %>% replace.na()
+) %>%
+  cor(use = "pairwise.complete.obs")
+accidents.cor %>%
+  ggcorrplot() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+accidents.cor %>% kable()
+```
+
 ### Período de Monitoreo
 
 - **Cobertura temporal**: 23 de junio de 2023 - 15 de mayo de 2024
@@ -2407,11 +3350,11 @@ accidents %>% ggplot() +
   scale_fill_discrete(labels = label_wrap_gen(width = 15))
 ```
 
-### Distribución temporal
+### Distribución Temporal
 
 ```{r accidents.month.time, echo=FALSE, message=FALSE, warning=FALSE}
 accidents.dates <- data.frame(
-  Mes = accidents$Date %>% month(),
+  Mes = months[accidents$Date %>% month()] %>% factor(levels = months),
   `Día de la Semana` = accidents$Date %>% weekdays() %>% factor(levels = weekdays)
 )
 accidents.dates %>%
@@ -2429,15 +3372,22 @@ accidents.dates %>%
     )
   ) +
   labs(x = "Mes", y = "Día de la Semana")
+accidents.dates %>%
+  count(Mes, Día.de.la.Semana, .drop = F) %>%
+  spread(key = Mes, value = n, fill = 0) %>%
+  as.data.frame() %>%
+  column_to_rownames("Día.de.la.Semana") %>%
+  as.matrix() %>%
+  kable()
 ```
 
-### Granularidad espacial
+### Granularidad Espacial
 
 - Distancia Mínima: 9.49 centímetros
 - Distancia Máxima: 11.71 kilómetros
-- Distancia Media: 3.27 metros
+- Distancia Media: 3.27 metros (lineal); 67.82 centímetros (logarítmico)
 - Distancia Mediana: 55.36 centímetros
-- Desviación Standard: 37.17 metros
+- Desviación Standard: 37.17 metros (lineal); 4.35 metros (logarítmico)
 
 ```{r accidents.space.0, include=FALSE}
 accidents.distances.0.lst <- list()
@@ -2479,7 +3429,18 @@ ggplot() +
   scale_x_log10()
 ```
 
-### Contexto Geográfico
+**Outliers**: Cuartiles (logarítmico)
+
+```{r accidents.space.ol, echo=FALSE, message=FALSE, warning=FALSE}
+is.outlier <- positive.accidents.distances %>% is.outlier.q(func = log)
+ggplot() +
+  geom_histogram(aes(x = positive.accidents.distances, fill = is.outlier)) +
+  scale_x_log10()
+```
+
+Hay 4270 outliers superiores
+
+### Distribución Geográfica
 
 - **Distribución por ciudad**:
     - Concepción: 130516 alertas
@@ -2492,6 +3453,69 @@ accidents %>% ggplot() +
   geom_bar(aes(y = City %>% fct_infreq() %>% fct_rev())) +
   labs(y = "City") +
   scale_x_log10()
+```
+
+### Distribución Espacio-Temporal
+
+**Comuna y Mes**
+
+```{r accidents.spacetime.0, echo=FALSE, message=FALSE, warning=FALSE}
+accidents.spacetime <- data.frame(
+  Mes = months[accidents$Date %>% month()] %>% factor(levels = months),
+  Día = accidents$Date %>% weekdays() %>% factor(levels = weekdays),
+  Comuna = accidents$City %>% factor(levels = accidents$City %>% fct_infreq() %>% levels())
+)
+accidents.spacetime %>%
+  count(Mes, Comuna, .drop = F) %>%
+  ggplot() +
+  geom_tile(aes(y = Comuna %>% fct_rev(), x = Mes, fill = n)) +
+  scale_fill_gradientn(
+    name = "Cantidad",
+    colors = c(
+      "red",
+      "orange",
+      "yellow",
+      "lightgreen",
+      "darkgreen"
+    )
+  ) +
+  labs(y = "Comuna", x = "Mes") +
+  scale_y_discrete(labels = label_wrap_gen(width = 20))
+accidents.spacetime %>%
+  count(Mes, Comuna, .drop = F) %>%
+  spread(key = Mes, value = n, fill = 0) %>%
+  as.data.frame() %>%
+  column_to_rownames("Comuna") %>%
+  as.matrix() %>%
+  kable()
+```
+
+**Comuna y Día de la Semana**
+
+```{r accidents.spacetime.1, echo=FALSE, message=FALSE, warning=FALSE}
+accidents.spacetime %>%
+  count(Día, Comuna, .drop = F) %>%
+  ggplot() +
+  geom_tile(aes(y = Comuna %>% fct_rev(), x = Día, fill = n)) +
+  scale_fill_gradientn(
+    name = "Cantidad",
+    colors = c(
+      "red",
+      "orange",
+      "yellow",
+      "lightgreen",
+      "darkgreen"
+    )
+  ) +
+  labs(y = "Comuna", x = "Día de la Semana") +
+  scale_y_discrete(labels = label_wrap_gen(width = 20))
+accidents.spacetime %>%
+  count(Día, Comuna, .drop = F) %>%
+  spread(key = Día, value = n, fill = 0) %>%
+  as.data.frame() %>%
+  column_to_rownames("Comuna") %>%
+  as.matrix() %>%
+  kable()
 ```
 
 ### Métricas de Confiabilidad
@@ -2536,6 +3560,23 @@ waze.data %>% summary()
 
 El dataset contiene 13502 registros de irregularidades de tráfico documentadas a través de la plataforma Waze for Cities, proporcionando métricas detalladas sobre el impacto de incidentes viales en la Región del Biobío durante un período de 11 meses.
 
+### Matriz de correlación
+
+```{r waze.data.corr, echo=FALSE, message=FALSE, warning=FALSE}
+waze.data.cor <- waze.data %>% mutate(
+  Day = Day %>% as.numeric(),
+  Country = Country %>% as.numeric() %>% replace.na(),
+  City = City %>% as.numeric() %>% replace.na(),
+  Street = Street %>% as.numeric() %>% replace.na(),
+  Cause = Cause %>% as.numeric() %>% replace.na()
+) %>%
+  cor(use = "pairwise.complete.obs")
+waze.data.cor %>%
+  ggcorrplot() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 8), axis.text.y = element_text(size = 8))
+waze.data.cor %>% kable()
+```
+
 ### Período de Análisis
 
 - **Cobertura temporal**: 23 de junio de 2023 - 15 de mayo de 2024
@@ -2548,11 +3589,11 @@ waze.data %>% ggplot() +
   scale_fill_discrete(labels = label_wrap_gen(width = 15))
 ```
 
-### Distribución temporal
+### Distribución Temporal
 
 ```{r waze.data.month.time, echo=FALSE, message=FALSE, warning=FALSE}
 waze.data.dates <- data.frame(
-  Mes = waze.data$Day %>% month(),
+  Mes = months[waze.data$Day %>% month()] %>% factor(levels = months),
   `Día de la Semana` = waze.data$Day %>% weekdays() %>% factor(levels = weekdays)
 )
 waze.data.dates %>%
@@ -2570,6 +3611,13 @@ waze.data.dates %>%
     )
   ) +
   labs(x = "Mes", y = "Día de la Semana")
+waze.data.dates %>%
+  count(Mes, Día.de.la.Semana, .drop = F) %>%
+  spread(key = Mes, value = n, fill = 0) %>%
+  as.data.frame() %>%
+  column_to_rownames("Día.de.la.Semana") %>%
+  as.matrix() %>%
+  kable()
 ```
 
 ### Distribución Geográfica
@@ -2584,6 +3632,69 @@ waze.data.dates %>%
 waze.data %>% ggplot() +
   geom_bar(aes(y = City %>% fct_infreq() %>% fct_rev(), fill = Cause %>% fct_infreq())) +
   labs(y = "City", fill = "Cause")
+```
+
+### Distribución Espacio-Temporal
+
+**Comuna y Mes**
+
+```{r waze.data.spacetime.0, echo=FALSE, message=FALSE, warning=FALSE}
+waze.data.spacetime <- data.frame(
+  Mes = months[waze.data$Day %>% month()] %>% factor(levels = months),
+  Día = waze.data$Day %>% weekdays() %>% factor(levels = weekdays),
+  Comuna = waze.data$City %>% factor(levels = waze.data$City %>% fct_infreq() %>% levels())
+)
+waze.data.spacetime %>%
+  count(Mes, Comuna, .drop = F) %>%
+  ggplot() +
+  geom_tile(aes(y = Comuna %>% fct_rev(), x = Mes, fill = n)) +
+  scale_fill_gradientn(
+    name = "Cantidad",
+    colors = c(
+      "red",
+      "orange",
+      "yellow",
+      "lightgreen",
+      "darkgreen"
+    )
+  ) +
+  labs(y = "Comuna", x = "Mes") +
+  scale_y_discrete(labels = label_wrap_gen(width = 20))
+waze.data.spacetime %>%
+  count(Mes, Comuna, .drop = F) %>%
+  spread(key = Mes, value = n, fill = 0) %>%
+  as.data.frame() %>%
+  column_to_rownames("Comuna") %>%
+  as.matrix() %>%
+  kable()
+```
+
+**Comuna y Día de la Semana**
+
+```{r waze.data.spacetime.1, echo=FALSE, message=FALSE, warning=FALSE}
+waze.data.spacetime %>%
+  count(Día, Comuna, .drop = F) %>%
+  ggplot() +
+  geom_tile(aes(y = Comuna %>% fct_rev(), x = Día, fill = n)) +
+  scale_fill_gradientn(
+    name = "Cantidad",
+    colors = c(
+      "red",
+      "orange",
+      "yellow",
+      "lightgreen",
+      "darkgreen"
+    )
+  ) +
+  labs(y = "Comuna", x = "Día de la Semana") +
+  scale_y_discrete(labels = label_wrap_gen(width = 20))
+waze.data.spacetime %>%
+  count(Día, Comuna, .drop = F) %>%
+  spread(key = Día, value = n, fill = 0) %>%
+  as.data.frame() %>%
+  column_to_rownames("Comuna") %>%
+  as.matrix() %>%
+  kable()
 ```
 
 ### Clasificación por Causas Identificadas
@@ -2790,7 +3901,7 @@ waze.routes.df$date <- waze.routes.df$date %>% as.POSIXct(format = "%d-%m-%Y")
 waze.routes.df$subfolder <- waze.routes.df$subfolder %>% as.factor()
 waze.routes.df$file <- waze.routes.df$file %>% as.factor()
 waze.routes.df$updateTime <- (waze.routes.df$updateTime / 1000) %>% as.POSIXct(origin = "1970-01-01", tz = "UTC")
-waze.routes.df$weekday <- waze.routes.df$updateTime %>% weekdays() %>% as.factor()
+waze.routes.df$weekday <- waze.routes.df$updateTime %>% weekdays() %>% factor(levels = weekdays)
 end.sys <- Sys.time()
 modifying.time <- end.sys - start.sys
 # Modifying Time: 4m + 35.99s
@@ -2932,7 +4043,7 @@ display.heat.map = function(placeName = "Av. Los Carrera", dirName = "O.P", filt
       )
     ) +
     labs(title = paste("Mapa de calor en", placeName, "en dirección", dirName, title), x = "Tramo", y = "Hora", fill = "Velocidad") +
-    theme(axis.text.x = element_text(angle = 270, hjust = 1, vjust = 0.5))
+    theme(axis.text.x = element_text(angle = 90, hjust = 0, vjust = 0.5))
 }
 
 for(placeName in waze.routes.heatmap$placeName %>% levels()){
@@ -2945,6 +4056,45 @@ for(placeName in waze.routes.heatmap$placeName %>% levels()){
 ```
 
 El sistema procesó 766668 registros de datos de rutas provenientes de la API de Waze, consolidando información de navegación y alertas de tráfico durante un período de 21 días.
+
+### Matriz de correlación
+
+```{r waze.routes.df.corr, echo=FALSE, message=FALSE, warning=FALSE}
+waze.routes.df.cor <- waze.routes.df %>% mutate(
+  toName = toName %>% as.numeric() %>% replace.na(),
+  name = name %>% as.numeric() %>% replace.na(),
+  fromName = fromName %>% as.numeric() %>% replace.na(),
+  id = id %>% as.numeric() %>% replace.na(),
+  type = type %>% as.numeric() %>% replace.na(),
+  leadAlert.city = leadAlert.city %>% as.numeric() %>% replace.na(),
+  leadAlert.externalImageId = leadAlert.externalImageId %>% as.numeric() %>% replace.na(),
+  leadAlert.street = leadAlert.street %>% as.numeric() %>% replace.na(),
+  leadAlert.subType = leadAlert.subType %>% as.numeric() %>% replace.na(),
+  leadAlert.id = leadAlert.id %>% as.numeric() %>% replace.na(),
+  leadAlert.type = leadAlert.type %>% as.numeric() %>% replace.na(),
+  broadcasterId = broadcasterId %>% as.numeric() %>% replace.na(),
+  areaName = areaName %>% as.numeric() %>% replace.na(),
+  isMetric = isMetric %>% as.numeric() %>% replace.na(),
+  updateTime = updateTime %>% as.numeric(),
+  date = date %>% as.numeric(),
+  subfolder = subfolder %>% as.numeric(),
+  file = file %>% as.numeric() %>% replace.na(),
+  weekday = weekday %>% as.numeric() %>% replace.na()
+) %>%
+  cor(use = "pairwise.complete.obs")
+waze.routes.df.cor %>%
+  ggcorrplot() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 8), axis.text.y = element_text(size = 8))
+waze.routes.df.cor %>%
+  round(digits = 4) %>%
+  kable() %>%
+  kable_styling(full_width = F) %>%
+  column_spec(1, bold = T, border_right = T) %>%
+  add_header_above(c(" " = 1, "Variables" = ncol(waze.routes.df.cor))) %>%
+  pack_rows("Variables", 1, nrow(waze.routes.df.cor)) %>%
+  row_spec(0, angle = 90, extra_css = "vertical-align: bottom;") %>%
+  column_spec(2:ncol(waze.routes.df.cor), width = "0.5cm")
+```
 
 ### Metadatos de Procesamiento
 
@@ -2978,7 +4128,7 @@ ggplot() +
   scale_x_log10()
 ```
 
-**Outliers**
+**Outliers**: Media y desviación standard (logarítmico)
 
 ```{r waze.routes.time.ol, echo=FALSE, message=FALSE, warning=FALSE}
 is.outlier <- positive.differences %>% is.outlier.m.n.sd(func = log)
@@ -2989,7 +4139,7 @@ ggplot() +
 
 Hay 39 outliers inferiores y 147 outliers superiores, dando un total de 186 outliers
 
-### Distribución temporal
+### Distribución Temporal
 
 ```{r waze.routes.month.time, echo=FALSE, message=FALSE, warning=FALSE}
 waze.routes.dates <- data.frame(
@@ -3011,9 +4161,16 @@ waze.routes.dates %>%
     )
   ) +
   labs(y = "Hora", x = "Día de la Semana")
+waze.routes.dates %>%
+  count(Hora, Día.de.la.Semana, .drop = F) %>%
+  spread(key = Día.de.la.Semana, value = n, fill = 0) %>%
+  as.data.frame() %>%
+  column_to_rownames("Hora") %>%
+  as.matrix() %>%
+  kable()
 ```
 
-### Granularidad espacial
+### Granularidad Espacial
 
 - Distancia Mínima: 32 centímetros
 - Distancia Máxima: 730.01 metros
@@ -3041,7 +4198,7 @@ ggplot() +
   scale_x_log10()
 ```
 
-**Outliers**
+**Outliers**: Media y desviación standard (logarítmico)
 
 ```{r waze.routes.df.space.ol, echo=FALSE, message=FALSE, warning=FALSE}
 is.outlier <- waze.routes.positive.dist %>% is.outlier.m.n.sd(func = log)
@@ -3051,6 +4208,69 @@ ggplot() +
 ```
 
 Hay 91270 outliers inferiores y 36508 outliers superiores, dando un total de 127778 outliers
+
+### Distribución Espacio-Temporal
+
+**Comuna y Día de la Semana**
+
+```{r waze.routes.spacetime.0, echo=FALSE, message=FALSE, warning=FALSE}
+waze.routes.spacetime <- data.frame(
+  Hora = waze.routes$updateTime[!(waze.routes$leadAlert.id %>% is.na())] %>% hour(),
+  Día = waze.routes$updateTime[!(waze.routes$leadAlert.id %>% is.na())] %>% weekdays() %>% factor(levels = weekdays),
+  Comuna = waze.routes$leadAlert.city[!(waze.routes$leadAlert.id %>% is.na())] %>% factor(levels = waze.routes$leadAlert.city %>% fct_infreq() %>% levels())
+)
+waze.routes.spacetime %>%
+  count(Día, Comuna, .drop = F) %>%
+  ggplot() +
+  geom_tile(aes(x = Comuna %>% fct_rev(), y = Día %>% fct_rev(), fill = n)) +
+  scale_fill_gradientn(
+    name = "Cantidad",
+    colors = c(
+      "red",
+      "orange",
+      "yellow",
+      "lightgreen",
+      "darkgreen"
+    )
+  ) +
+  labs(x = "Comuna", y = "Día de la Semana") +
+  scale_y_discrete(labels = label_wrap_gen(width = 20))
+waze.routes.spacetime %>%
+  count(Día, Comuna, .drop = F) %>%
+  spread(key = Día, value = n, fill = 0) %>%
+  as.data.frame() %>%
+  column_to_rownames("Comuna") %>%
+  as.matrix() %>%
+  kable()
+```
+
+**Comuna y Hora**
+
+```{r waze.routes.spacetime.1, echo=FALSE, message=FALSE, warning=FALSE}
+waze.routes.spacetime %>%
+  count(Hora, Comuna, .drop = F) %>%
+  ggplot() +
+  geom_tile(aes(x = Comuna %>% fct_rev(), y = Hora, fill = n)) +
+  scale_fill_gradientn(
+    name = "Cantidad",
+    colors = c(
+      "red",
+      "orange",
+      "yellow",
+      "lightgreen",
+      "darkgreen"
+    )
+  ) +
+  labs(x = "Comuna", y = "Hora") +
+  scale_y_discrete(labels = label_wrap_gen(width = 20))
+waze.routes.spacetime %>%
+  count(Hora, Comuna, .drop = F) %>%
+  spread(key = Hora, value = n, fill = 0) %>%
+  as.data.frame() %>%
+  column_to_rownames("Comuna") %>%
+  as.matrix() %>%
+  kable()
+```
 
 ### Características del Dataset Consolidado
 
@@ -3110,7 +4330,7 @@ waze.routes %>% ggplot() +
   scale_x_log10()
 ```
 
-**Outliers**
+**Outliers**: Media y desviación standard (logarítmico)
 
 ```{r waze.routes.historicTime.ol, echo=FALSE, message=FALSE, warning=FALSE}
 is.outlier <- waze.routes$historicTime %>% is.outlier.m.n.sd(func = function(n) ifelse(n > 0, n %>% log(), NA))
@@ -3122,13 +4342,14 @@ waze.routes %>% ggplot() +
 Hay 25041 outliers inferiores y 25421 outliers superiores, dando un total de 50462 outliers
 
 *Distancias y Velocidades*
+
 - **Longitud de ruta** (`length`):
   - Mínimo: 0
   - Máximo: 1257
   - Media: 175.4 (lineal); 127.73 (logarítmico)
   - Mediana: 126
   - Desviación Standard: 189.09 (lineal); 2.09 (logarítmico)
-- **Velocidad calculada** (`speed`): 0.52-24 unidades (media: 8.06, mediana: 7.89)
+- **Velocidad calculada** (`speed`):
   - Mínimo: 0.52
   - Máximo: 24
   - Media: 8.06 (lineal)
@@ -3141,7 +4362,7 @@ waze.routes %>% ggplot() +
   geom_histogram(aes(x = speed))
 ```
 
-**Outliers**
+**Outliers**: Media y desviación standard (lineal)
 
 ```{r waze.routes.speed.ol, echo=FALSE, message=FALSE, warning=FALSE}
 is.outlier <- waze.routes$speed %>% is.outlier.m.n.sd()
