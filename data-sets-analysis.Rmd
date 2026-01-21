@@ -26,6 +26,8 @@ library(OpenStreetMap)
 library(cowplot)
 library(data.table)
 library(dplyr)
+library(furrr)
+library(future.apply)
 library(ggcorrplot)
 library(ggmap)
 library(ggplot2)
@@ -235,35 +237,53 @@ is.outlier.q <- function(x, dev = 1.5, func = function(n) n){
 ```
 
 $$
-\Theta = \left\{ x \in X \mid f\left( x \right) \notin R\left( f\left( X \right) \right) \right\}
+\Theta = \left\{ x \in X \mid f(x) \notin R\left(f(X)\right) \right\}
 $$
 
-- $\Theta\subseteq \mathbb{R}$: Conjunto de outliers
-- $X\subseteq \mathbb{R}$: Conjunto de datos
-- $f: \mathbb{R}\to \mathbb{R}$: Función de escala (puede ser $f\left( x \right) = x$ o $f\left( x \right) = \ln \left( x \right)$)
-- $R: \mathcal{P}\left( \mathbb{R} \right)\to \mathcal{P}\left( \mathbb{R} \right)$: Función de intervalo
+Donde:
+- $\Theta \subseteq \mathbb{R}$: Conjunto de valores atípicos
+- $X \subseteq \mathbb{R}$: Conjunto de datos observados
+- $f: \mathbb{R} \to \mathbb{R}$: Función de transformación (puede ser la identidad $f(x) = x$ o transformaciones como $f(x) = \ln(x)$)
+- $R: \mathcal{P}(\mathbb{R}) \to \mathcal{P}(\mathbb{R})$: Función que define el intervalo de valores considerados normales
 
-## Función de intervalo
+## Métodos de Detección
 
-### Método de media y desviación standard
+### 1. Método de Media y Desviación Standard
 
-$$
-R\left( K \right) = \left[ \text{mean}\left( K \right) \pm n \times \text{sd}\left( K \right) \right]
-$$
-
-- $\text{mean}: \mathcal{P}\left( \mathbb{R} \right)\to \mathbb{R}$: Media aritmética
-- $\text{sd}: \mathcal{P}\left( \mathbb{R} \right)\to \mathbb{R}$: Desviación standard
-- $n \in \mathbb{R}$: Diferencia con la media en términos de desviaciones standard (por defecto: $n = 2$)
-
-### Método de cuartiles
+Este método considera atípicos aquellos valores que se encuentran a más de cierta cantidad de desviaciones estándar de la media:
 
 $$
-R\left( K \right) = \left[ Q_{1}\left( K \right) - n \times \text{IQ}\left( K \right), Q_{3}\left( K \right) + n \times \text{IQ}\left( K \right) \right]
+R(K) = \left[ \mu_K - n \times \sigma_K,\ \mu_K + n \times \sigma_K \right]
 $$
 
-- $Q_{k}: \mathcal{P}\left( \mathbb{R} \right)\to \mathbb{R}$: k-ésimo cuartil
-- $\text{IQ}: \mathcal{P}\left( \mathbb{R} \right)\to \mathbb{R}$: Rango intercuartílico ($\text{IQ}\left( K \right) = Q_{3}\left( K \right) - Q_{1}\left( K \right)$)
-- $n \in \mathbb{R}$: Diferencia con los cuartiles en términos de rangos intercuartílicos (por defecto: $n = \frac{3}{2}$)
+Donde:
+- $\mu_K$: Media aritmética del conjunto de datos $K$
+- $\sigma_K$: Desviación standard de $K$
+- $n \in \mathbb{R}$: Número de desviaciones standard que definen el límite (valor por defecto: $n = 2$)
+
+**Características:**
+- Adecuado para distribuciones aproximadamente normales
+- Sensible a la presencia de outliers en el cálculo de la media y desviación standard
+- El parámetro $n$ controla la sensibilidad del método
+
+### 2. Método de Cuartiles (Rango Intercuartílico)
+
+Este método utiliza estadísticos robustos basados en cuartiles:
+
+$$
+R(K) = \left[ Q_1(K) - n \times \text{IQR}(K),\ Q_3(K) + n \times \text{IQR}(K) \right]
+$$
+
+Donde:
+- $Q_1(K)$: Primer cuartil (percentil 25)
+- $Q_3(K)$: Tercer cuartil (percentil 75)
+- $\text{IQR}(K) = Q_3(K) - Q_1(K)$: Rango intercuartílico
+- $n \in \mathbb{R}$: Multiplicador del IQR (valor por defecto: $n = 1.5$)
+
+**Ventajas:**
+- Robusto ante la presencia de valores atípicos
+- No asume normalidad en la distribución
+- Ampliamente utilizado en diagramas de caja (*boxplots*)
 
 # Extracción y caracterización de datos
 
@@ -316,7 +336,7 @@ interurban.bus.accidents.cor %>%
   ggcorrplot() +
   theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 8), axis.text.y = element_text(size = 8))
 interurban.bus.accidents.cor %>%
-  round(digits = 4) %>%
+  round(digits = 3) %>%
   kable() %>%
   kable_styling(full_width = F) %>%
   column_spec(1, bold = T, border_right = T) %>%
@@ -324,6 +344,11 @@ interurban.bus.accidents.cor %>%
   pack_rows("Variables", 1, nrow(interurban.bus.accidents.cor)) %>%
   row_spec(0, angle = 90, extra_css = "vertical-align: bottom;") %>%
   column_spec(2:ncol(interurban.bus.accidents.cor), width = "0.5cm")
+```
+
+
+```{r interurban.bus.accidents.corr.export, eval=FALSE, include=FALSE}
+interurban.bus.accidents.cor %>% write.csv(file = "corr/interurban.bus.accidents.csv")
 ```
 
 
@@ -764,6 +789,11 @@ gh026929.cor %>%
 gh026929.cor %>% kable()
 ```
 
+
+```{r gh026929.corr.export, eval=FALSE, include=FALSE}
+gh026929.cor %>% write.csv(file = "corr/gh026929.csv")
+```
+
 ### Características Temporales
 
 - **Período de registro**: 29 de agosto de 2024, entre las 01:32 y 01:34 horas
@@ -1014,7 +1044,7 @@ tracking.gps.df.cor %>%
   ggcorrplot() +
   theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 8), axis.text.y = element_text(size = 8))
 tracking.gps.df.cor %>%
-  round(digits = 4) %>%
+  round(digits = 3) %>%
   kable() %>%
   kable_styling(full_width = F) %>%
   column_spec(1, bold = T, border_right = T) %>%
@@ -1022,6 +1052,11 @@ tracking.gps.df.cor %>%
   pack_rows("Variables", 1, nrow(tracking.gps.df.cor)) %>%
   row_spec(0, angle = 90, extra_css = "vertical-align: bottom;") %>%
   column_spec(2:ncol(tracking.gps.df.cor), width = "0.25cm")
+```
+
+
+```{r tracking.gps.df.corr.export, eval=FALSE, include=FALSE}
+tracking.gps.df.cor %>% write.csv(file = "corr/tracking.gps.df.csv")
 ```
 
 ### Metadatos de Procesamiento
@@ -1146,16 +1181,44 @@ Hay 1929562 outliers inferiores y 40637 outliers superiores, dando un total de 1
 *Pendiente*
 
 ```{r tracking.gps.df.spacetime.0, eval=FALSE, echo=FALSE, message=FALSE, warning=FALSE}
+plan(multisession, workers = availableCores() - 1)
 tracking.gps.df.points <- tracking.gps.df %>%
   st_as_sf(
     coords = c("X_EVT_GPS_LON", "Y_EVT_GPS_LAT"),
     crs = 4326
   ) %>% st_make_valid()
-tracking.gps.df.cities <- st_join(tracking.gps.df.points, cities.map, join = st_intersects)
+cities.map.optimized <- mapa_comunas %>%
+  st_as_sf() %>%
+  st_transform(crs = 4326) %>%
+  st_make_valid()
+comuna_names <- setNames(
+  codigos_territoriales$nombre_comuna,
+  codigos_territoriales$codigo_comuna
+)
+cities.map.optimized <- cities.map.optimized %>%
+  mutate(
+    nombre_comuna = comuna_names[codigo_comuna %>% as.character()]
+  )
+cities.map.index <- cities.map.optimized %>%
+  mutate(geometry_idx = geometry) %>%
+  st_as_sf()
+n.chunks <- 1000
+chunk.size <- (tracking.gps.df.points %>% nrow() / n.chunks) %>% ceiling()
+tracking.gps.df.cities <- tracking.gps.df.points %>%
+  mutate(chunk.id = (row_number() - 1) %% chunk.size) %>%
+  group_by(chunk.id) %>%
+  group_split() %>%
+  future_map_dfr(~{
+    st_join(.x, cities.map.optimized, join = st_intersects)
+  }, .options = furrr_options(seed = T))
 tracking.gps.df.spacetime <- data.frame(
   Semana = tracking.gps.df$EVT_GPS_TIME_CHILE_STR %>% floor_date(unit = "week", week_start = 1),
   Día = tracking.gps.df$EVT_GPS_TIME_CHILE_STR %>% weekday() %>% factor(levels = weekdays)
 )
+```
+
+
+```{r tracking.gps.df.spacetime.1, eval=FALSE, echo=FALSE, message=FALSE, warning=FALSE}
 tracking.gps.df.spacetime %>%
   count(Año, Región, .drop = F) %>%
   ggplot() +
@@ -1525,7 +1588,7 @@ police.accidents.cor %>%
   ggcorrplot() +
   theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 8), axis.text.y = element_text(size = 8))
 police.accidents.cor %>%
-  round(digits = 4) %>%
+  round(digits = 3) %>%
   kable() %>%
   kable_styling(full_width = F) %>%
   column_spec(1, bold = T, border_right = T) %>%
@@ -1533,6 +1596,11 @@ police.accidents.cor %>%
   pack_rows("Variables", 1, nrow(police.accidents.cor)) %>%
   row_spec(0, angle = 90, extra_css = "vertical-align: bottom;") %>%
   column_spec(2:ncol(police.accidents.cor), width = "0.5cm")
+```
+
+
+```{r police.accidents.corr.export, eval=FALSE, include=FALSE}
+police.accidents.cor %>% write.csv(file = "corr/police.accidents.csv")
 ```
 
 ### Período de Análisis
@@ -2055,6 +2123,11 @@ radio.accidents.df.cor %>%
 radio.accidents.df.cor %>% round(digits = 4) %>% kable()
 ```
 
+
+```{r radio.accidents.df.corr.export, eval=FALSE, include=FALSE}
+radio.accidents.df.cor %>% write.csv(file = "corr/radio.accidents.df.csv")
+```
+
 ### Período de Registro
 
 - **Duración**: 15 de julio al 20 de agosto de 2024
@@ -2377,6 +2450,11 @@ chiguayante.speed.df.cor %>%
 chiguayante.speed.df.cor %>% kable()
 ```
 
+
+```{r chiguayante.speed.df.corr.export, eval=FALSE, include=FALSE}
+chiguayante.speed.df.cor %>% write.csv(file = "corr/chiguayante.speed.df.csv")
+```
+
 ### Contexto Operacional
 
 - **Ubicación**: Paradero "Bdo O'Higgins - Arauco", Chiguayante
@@ -2600,6 +2678,11 @@ vega.speed.df.cor %>%
 vega.speed.df.cor %>% kable()
 ```
 
+
+```{r vega.speed.df.corr.export, eval=FALSE, include=FALSE}
+vega.speed.df.cor %>% write.csv(file = "corr/vega.speed.df.csv")
+```
+
 ### Contexto Operacional
 
 - **Ubicación**: Esquina Briceños con Miraflores, La Vega
@@ -2771,7 +2854,7 @@ gps.events.cor %>%
   ggcorrplot() +
   theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
 gps.events.cor %>%
-  round(digits = 4) %>%
+  round(digits = 3) %>%
   kable() %>%
   kable_styling(full_width = F) %>%
   column_spec(1, bold = T, border_right = T) %>%
@@ -2779,6 +2862,11 @@ gps.events.cor %>%
   pack_rows("Variables", 1, nrow(gps.events.cor)) %>%
   row_spec(0, angle = 90, extra_css = "vertical-align: bottom;") %>%
   column_spec(2:ncol(gps.events.cor), width = "0.5cm")
+```
+
+
+```{r gps.events.corr.export, eval=FALSE, include=FALSE}
+gps.events.cor %>% write.csv(file = "corr/gps.events.csv")
 ```
 
 ### Período de Monitoreo
@@ -2949,7 +3037,7 @@ biobio.inventary.cor %>%
   ggcorrplot() +
   theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 8), axis.text.y = element_text(size = 8))
 biobio.inventary.cor %>%
-  round(digits = 4) %>%
+  round(digits = 3) %>%
   kable() %>%
   kable_styling(full_width = F) %>%
   column_spec(1, bold = T, border_right = T) %>%
@@ -2957,6 +3045,11 @@ biobio.inventary.cor %>%
   pack_rows("Variables", 1, nrow(biobio.inventary.cor)) %>%
   row_spec(0, angle = 90, extra_css = "vertical-align: bottom;") %>%
   column_spec(2:ncol(biobio.inventary.cor), width = "0.5cm")
+```
+
+
+```{r biobio.inventary.corr.export, eval=FALSE, include=FALSE}
+biobio.inventary.cor %>% write.csv(file = "corr/biobio.inventary.csv")
 ```
 
 ### Granularidad Espacial
@@ -3123,6 +3216,11 @@ trafic.alerts.cor %>%
   ggcorrplot() +
   theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
 trafic.alerts.cor %>% kable()
+```
+
+
+```{r trafic.alerts.corr.export, eval=FALSE, include=FALSE}
+trafic.alerts.cor %>% write.csv(file = "corr/trafic.alerts.csv")
 ```
 
 ### Período de Análisis
@@ -3336,6 +3434,11 @@ accidents.cor %>%
   ggcorrplot() +
   theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
 accidents.cor %>% kable()
+```
+
+
+```{r accidents.corr.export, eval=FALSE, include=FALSE}
+accidents.cor %>% write.csv(file = "corr/accidents.csv")
 ```
 
 ### Período de Monitoreo
@@ -3575,6 +3678,11 @@ waze.data.cor %>%
   ggcorrplot() +
   theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 8), axis.text.y = element_text(size = 8))
 waze.data.cor %>% kable()
+```
+
+
+```{r waze.data.corr.export, eval=FALSE, include=FALSE}
+waze.data.cor %>% write.csv(file = "corr/waze.data.csv")
 ```
 
 ### Período de Análisis
@@ -4086,7 +4194,7 @@ waze.routes.df.cor %>%
   ggcorrplot() +
   theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 8), axis.text.y = element_text(size = 8))
 waze.routes.df.cor %>%
-  round(digits = 4) %>%
+  round(digits = 3) %>%
   kable() %>%
   kable_styling(full_width = F) %>%
   column_spec(1, bold = T, border_right = T) %>%
@@ -4094,6 +4202,11 @@ waze.routes.df.cor %>%
   pack_rows("Variables", 1, nrow(waze.routes.df.cor)) %>%
   row_spec(0, angle = 90, extra_css = "vertical-align: bottom;") %>%
   column_spec(2:ncol(waze.routes.df.cor), width = "0.5cm")
+```
+
+
+```{r waze.data.corr.export, eval=FALSE, include=FALSE}
+waze.routes.df.cor %>% write.csv(file = "corr/waze.routes.df.csv")
 ```
 
 ### Metadatos de Procesamiento
