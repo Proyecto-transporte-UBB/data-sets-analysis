@@ -44,6 +44,7 @@ library(maps)
 library(openxlsx)
 library(osmdata)
 library(prettymapr)
+library(progressr)
 library(protolite)
 library(purrr)
 library(RANN)
@@ -1202,13 +1203,19 @@ cities.map.optimized <- cities.map.optimized %>%
 cities.map.index <- cities.map.optimized %>%
   mutate(geometry_idx = geometry) %>%
   st_as_sf()
-n.chunks <- 1000
+available.cores <- availableCores()
+n.chunks <- 10000
 chunk.size <- (tracking.gps.df.points %>% nrow() / n.chunks) %>% ceiling()
 tracking.gps.df.cities <- tracking.gps.df.points %>%
   mutate(chunk.id = (row_number() - 1) %% chunk.size) %>%
   group_by(chunk.id) %>%
   group_split() %>%
-  future_map_dfr(~{
+  future_map_dfr(function(.x, idx = NULL) {
+    if (idx %>% is.null()) {
+      message(Sys.time(), " - Procesando un chunk...")
+    } else {
+      message(Sys.time(), " - Procesando chunk ", idx, " de ", n.chunks)
+    }
     st_join(.x, cities.map.optimized, join = st_intersects)
   }, .options = furrr_options(seed = T))
 tracking.gps.df.spacetime <- data.frame(
