@@ -72,6 +72,7 @@ sum.time <- function(dt.list){
     (t %>% as.numeric()) * switch (t %>% units(),
       "secs" = 1,
       "mins" = 60,
+      "hours" = 3600
     )
   }) %>% sum()
 }
@@ -152,7 +153,6 @@ for(ko in key.objects[key.objects != "tracking.gps.df"]) {
 }
 total.save.dt <- save.time.sys %>% sum.time()
 ```
-
 
 ```{r load, include=FALSE}
 load.time.sys <- list()
@@ -1021,6 +1021,7 @@ shp.total.time <- shp.time %>% sum.time()
 
 ```{r getData1.51, eval=FALSE, include=FALSE}
 tracking.gps.df %>% summary()
+tracking.gps.df %>% head()
 ```
 
 El dataset consolidado comprende 21683856 registros de telemetría GPS provenientes del sistema de monitoreo de transporte público DTPR, capturados durante el mes de agosto de 2025 a través de 31 unidades operativas diferentes.
@@ -3886,6 +3887,8 @@ routes.list <- list()
 folder.time.list <- list()
 subfolder.time.list <- list()
 file.time.list <- list()
+#folders <- folders[folders %>% str_replace_all("_", "-") %>% as.POSIXct(format = "%d-%m-%Y") %>% order()]
+#folders <- folders[folders %>% str_replace_all("_", "-") %>% as.POSIXct(format = "%d-%m-%Y") > waze.routes.df$date %>% as.POSIXct(format = "%d-%m-%Y") %>% max()]
 for(folder in folders){
   folder.start.sys <- Sys.time()
   subfolders <- paste(json.route, folder, sep = "/") %>% list.dirs(recursive = F) %>% basename()
@@ -3982,12 +3985,12 @@ for(folder in folders){
   print(folder.dt.sys)
 }
 total.dt <- folder.time.list %>% sum.time()
-# Reading Time: 4h + 13m + 36.01s
+# Reading Time: 1d + 17h + 32m + 45.7s
 start.sys <- Sys.time()
 waze.routes.df <- routes.list %>% bind_rows()
 end.sys <- Sys.time()
 binding.time <- end.sys - start.sys
-# Binding Time: 15.76s
+# Binding Time: 26m + 56.11s
 start.sys <- Sys.time()
 waze.routes.df$toName <- waze.routes.df$toName %>% as.factor()
 waze.routes.df$name <- waze.routes.df$name %>% as.factor()
@@ -4019,7 +4022,7 @@ waze.routes.df$updateTime <- (waze.routes.df$updateTime / 1000) %>% as.POSIXct(o
 waze.routes.df$weekday <- waze.routes.df$updateTime %>% weekdays() %>% factor(levels = weekdays)
 end.sys <- Sys.time()
 modifying.time <- end.sys - start.sys
-# Modifying Time: 4m + 35.99s
+# Modifying Time: 55m + 31.33s
 waze.routes.df %>% summary()
 waze.routes <- waze.routes.df %>% distinct(id, date, file, .keep_all = T) %>% select(-x, -y, -point_index)
 waze.routes %>% summary()
