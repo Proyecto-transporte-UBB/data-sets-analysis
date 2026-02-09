@@ -24,6 +24,7 @@ options(java.parameters = "-Xmx2048m")
 library(ggspatial)
 library(OpenStreetMap)
 library(cowplot)
+library(crosstalk)
 library(data.table)
 library(dplyr)
 library(furrr)
@@ -54,6 +55,7 @@ library(rjson)
 library(rnaturalearth)
 library(rnaturalearthdata)
 library(sf)
+library(shiny)
 library(stringr)
 library(tidygeocoder)
 library(tidyr)
@@ -65,7 +67,7 @@ library(chilemapas)
 ```
 
 ```{r key.objects, include=FALSE}
-key.objects <- c("interurban.bus.accidents", "gh026929", "police.accidents", "radio.accidents.df", "chiguayante.speed.df", "vega.speed.df", "gps.events", "biobio.inventary", "trafic.alerts", "accidents", "waze.data", "meters.per.degree.lat", "meters.per.degree.lng", "quantum.data", "tracking.gps.df", "tracking.gps.df.cor", "waze.routes", "waze.routes.df")
+key.objects <- c("interurban.bus.accidents", "gh026929", "police.accidents", "radio.accidents.df", "chiguayante.speed.df", "vega.speed.df", "gps.events", "biobio.inventary", "trafic.alerts", "accidents", "waze.data", "meters.per.degree.lat", "meters.per.degree.lng", "tracking.gps.df", "tracking.gps.df.cor", "waze.routes", "waze.routes.df")
 
 sum.time <- function(dt.list){
   dt.list %>% sapply(., function(t){
@@ -717,7 +719,7 @@ for(sev in severity$severity %>% levels()){
 }
 ```
 
-### Optimizaciones Realizadas
+### Procesamiento y Normalización de Datos
 
 **Paso a paso**
 
@@ -919,7 +921,7 @@ Hay 91 outliers superiores
 - Velocidad 2D con inconsistencias en la ubicación del punto decimal
 - Múltiples campos numéricos presentados sin separador decimal
 
-### Procesamiento de Datos Realizado
+### Procesamiento y Normalización de Datos
 
 **Paso a paso**
 
@@ -2992,7 +2994,7 @@ gps.events %>% ggplot() +
 
 ## Inventario CCTV Biobío(1).xlsx
 
-```{r getData8, eval=FALSE, include=FALSE}
+```{r getData7, eval=FALSE, include=FALSE}
 # Inventario CCTV Biobío(1).xlsx
 biobio.inventary <- read_excel("data/Inventario CCTV Biobío(1).xlsx", 
     range = "A2:Q73", na = "----")
@@ -3178,7 +3180,7 @@ biobio.inventary %>% ggplot() +
 
 ## Alertas de Tráfico.csv
 
-```{r getData7, eval=FALSE, include=FALSE}
+```{r getData8, eval=FALSE, include=FALSE}
 # Alertas de Tráfico.csv
 trafic.alerts <- read_csv("data/Alertas de Tráfico.csv")
 trafic.alerts <- trafic.alerts %>% mutate(
@@ -3187,7 +3189,7 @@ trafic.alerts <- trafic.alerts %>% mutate(
 )
 trafic.alerts <- trafic.alerts %>% select(-Location)
 trafic.alerts$Date <- trafic.alerts$Date %>% str_replace_all(., setNames(
-  c("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"),
+  months,
   c("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic")
 )) %>% dmy()
 trafic.alerts$Country <- trafic.alerts$Country %>% as.factor()
@@ -3409,7 +3411,7 @@ accidents <- accidents %>% mutate(
 )
 accidents <- accidents %>% select(-Location)
 accidents$Date <- accidents$Date %>% str_replace_all(., setNames(
-  c("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"),
+  months,
   c("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic")
 )) %>% dmy()
 accidents$Country <- accidents$Country %>% as.factor()
@@ -3659,7 +3661,7 @@ accidents %>% ggplot() +
 waze.data <- read_csv("data/Waze for Cities Data Key Alerts Dashboard_Traffic Irregularities_Tabla(1).csv", 
     na = "null")
 waze.data$Day <- waze.data$Day %>% str_replace_all(., setNames(
-  c("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"),
+  months,
   c("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic")
 )) %>% dmy()
 waze.data$Country <- waze.data$Country %>% as.factor()
@@ -4236,10 +4238,10 @@ waze.routes.df.cor %>% write.csv(file = "corr/waze.routes.df.csv")
 ### Granularidad Temporal
 
 - Diferencia Mínima: 1 minuto, 51.2 segundos
-- Diferencia máxima: 1 día, 23 horas, 25 minutos, 2.3 segundos
-- Diferencia Media: 5 minutos, 33 segundos (lineal); 5 minutos, 3.66 segundos (logarítmico)
+- Diferencia máxima: 1 día, 23 horas, 25 minutos, 2.32 segundos
+- Diferencia Media: 5 minutos, 24.1 segundos (lineal); 5 minutos, 2.58 segundos (logarítmico)
 - Diferencia Mediana: 5 minutos
-- Desviación Standard: 30 minutos, 34.06 segundos (lineal); 1.18 segundos (logarítmico)
+- Desviación Standard: 24 minutos, 57.95 segundos (lineal); 1.16 segundos (logarítmico)
 
 ```{r waze.routes.time, echo=FALSE, message=FALSE, warning=FALSE}
 waze.routes.times <- waze.routes[waze.routes$updateTime %>% order(),] %>% distinct(updateTime)
@@ -4260,7 +4262,7 @@ ggplot() +
   scale_x_log10()
 ```
 
-Hay 39 outliers inferiores y 147 outliers superiores, dando un total de 186 outliers
+Hay 60 outliers inferiores y 176 outliers superiores, dando un total de 235 outliers
 
 ### Distribución Temporal
 
@@ -4330,7 +4332,7 @@ ggplot() +
   scale_x_log10()
 ```
 
-Hay 91270 outliers inferiores y 36508 outliers superiores, dando un total de 127778 outliers
+Hay 139900 outliers inferiores y 55960 outliers superiores, dando un total de 195860 outliers
 
 ### Distribución Espacio-Temporal
 
@@ -4604,153 +4606,168 @@ waze.routes.alerts %>% ggplot() +
 
 # Discretización de datos
 
-```{r quantum.data, eval=FALSE, include=FALSE}
+```{r quantum.data, include=FALSE}
 meters.per.degree.lat <- 111320
 
 meters.per.degree.lng <- function(lat.d) {
   meters.per.degree.lat * cos(lat.d * pi / 180)
 }
 
-calculate.street.heading <- function(lng.data, lat.data) {
-  n <- length(lng.data)
-  headings <- numeric(n)
-  for(i in 2:(n-1)) {
-    dx_meters <- (lng.data[i+1] - lng.data[i-1]) * meters.per.degree.lng(lat.data[i])
-    dy_meters <- (lat.data[i+1] - lat.data[i-1]) * meters.per.degree.lat
-    headings[i] <- atan2(dy_meters, dx_meters)
+calculate.street.heading <- function(lng.data, lat.data, buffer.meters = 100) {
+  if(lat.data %>% length() == 0) return(0 %>% numeric())
+  points.df <- data.frame(lng = lng.data, lat = lat.data)
+  points.sf <- points.df %>% st_as_sf(
+    coords = c("lng", "lat"),
+    crs = 4326
+  )
+  bbox <- points.sf %>% st_bbox()
+  osm.roads <- opq(bbox = bbox + c(-1, -1, 1, 1) * 0.002) %>%
+    add_osm_feature(key = "highway") %>%
+    osmdata_sf()
+  if(osm.roads$osm_lines %>% is.null() | osm.roads$osm_lines %>% nrow() == 0) {
+    message("No streets found")
+    return(rep(NA, lat.data %>% length()))
   }
-  headings[1] <- headings[2]
-  headings[n] <- headings[n-1]
-  
-  return(headings)
+  roads.proj <- osm.roads$osm_lines %>% st_transform(crs = 3857)
+  points.proj <- points.sf %>% st_transform(crs = 3857)
+  coords <- roads.proj %>% st_coordinates() %>% as.data.frame()
+  p1 <- coords[-(coords %>% nrow()),]
+  p2 <- coords[-1,]
+  valid.segments <- p1$L1 == p2$L1
+  p1 <- p1[valid.segments,]
+  p2 <- p2[valid.segments,]
+  seg.headings <- atan2(p2$Y - p1$Y, p2$X - p1$X)
+  mid.points.sf <- data.frame(heading = seg.headings) %>% st_as_sf(
+    geometry = mapply(
+      function(x1, y1, x2, y2) (c(x1 + x2, y1 + y2) / 2) %>% st_point(),
+      p1$X, p1$Y, p2$X, p2$Y,
+      SIMPLIFY = F
+    ) %>% st_sfc(),
+    crs = 3857
+  )
+  nearest.indices <- st_nearest_feature(points.proj, mid.points.sf)
+  return(seg.headings[nearest.indices])
 }
+
+stat.mode <- function(x){
+  ux <- x %>% unique()
+  ux[match(x, ux) %>% tabulate() %>% which.max()]
+}
+
+middle.value <- function(X) X %>% range(na.rm = T) %>% mean(na.rm = T)
 
 quantum.data <- function(
   time.data = c(),
   lng.data = c(),
   lat.data = c(),
   field.data = c(),
+  names.data = c(),
+  speed.data = c(),
+  minX = c(),
+  maxX = c(),
+  minY = c(),
+  maxY = c(),
   time.gap = 5,
   space.gap = 50,
   street.aligned = T,
-  street.angle.tolerance = 30,
-  compile.function = mean
+  street.angle.tolerance = 30
 ) {
-  if (length(unique(c(length(time.data), length(lng.data), length(lat.data), length(field.data)))) != 1) {
-    stop("All vectors must have the same length")
-  }
-  data.df <- data.frame(
+  dt <- data.table(
     time = time.data,
     lng = lng.data,
     lat = lat.data,
-    field = field.data,
-    stringsAsFactors = F
+    id = field.data,
+    name = names.data,
+    speed = speed.data,
+    minX = minX,
+    maxX = maxX,
+    minY = minY,
+    maxY = maxY
   )
-  data.df <- data.df[order(data.df$time), ]
-  if (street.aligned) {
-    data.df$heading <- calculate.street.heading(data.df$lng, data.df$lat)
-  }
-  if (time.gap > 0) {
-    min.time <- min(data.df$time)
-    max.time <- max(data.df$time)
-    time.bins <- seq(from = min.time, to = max.time, by = time.gap)
-    data.df$time.bin <- cut(data.df$time, breaks = time.bins, include.lowest = T, labels = F)
-    data.df$time.bin[is.na(data.df$time.bin)] <- max(data.df$time.bin, na.rm = T) + 1
-  } else {
-    data.df$time.bin <- 1:nrow(data.df)
-  }
-  if (space.gap > 0) {
-    if (street.aligned) {
-      lat_meters <- data.df$lat * meters.per.degree.lat
-      lng_meters <- data.df$lng * meters.per.degree.lng(data.df$lat)
-      data.df$x_along_street <- numeric(nrow(data.df))
-      data.df$y_across_street <- numeric(nrow(data.df))
-      for(i in 1:nrow(data.df)) {
-        angle <- data.df$heading[i]
-        rot_matrix <- matrix(c(cos(angle), sin(angle), -sin(angle), cos(angle)), nrow = 2)
-        coords <- rot_matrix %*% c(lng_meters[i], lat_meters[i])
-        data.df$x_along_street[i] <- coords[1]
-        data.df$y_across_street[i] <- coords[2]
-      }
-      x_range <- range(data.df$x_along_street)
-      x_bins <- seq(from = x_range[1], to = x_range[2], by = space.gap)
-      data.df$x_bin <- cut(data.df$x_along_street, breaks = x_bins, include.lowest = T, labels = F)
-      data.df$x_bin[is.na(data.df$x_bin)] <- max(data.df$x_bin, na.rm = T) + 1
-      cross_gap <- space.gap * sin(street.angle.tolerance * pi / 180)
-      y_range <- range(data.df$y_across_street)
-      y_bins <- seq(from = y_range[1], to = y_range[2], by = cross_gap)
-      data.df$y_bin <- cut(data.df$y_across_street, breaks = y_bins, include.lowest = T, labels = F)
-      data.df$y_bin[is.na(data.df$y_bin)] <- max(data.df$y_bin, na.rm = T) + 1
-      result <- data.df %>% 
-        group_by(time.bin, x_bin, y_bin) %>% 
-        summarise(
-          time = mean(time, na.rm = T),
-          lng = mean(lng, na.rm = T),
-          lat = mean(lat, na.rm = T),
-          field = compile.function(field, na.rm = T),
-          n.points = n(),
-          mean_heading = mean(heading, na.rm = T),
-          .groups = 'drop'
-        )
-    } else {
-      lat.range.meters <- range(data.df$lat) * meters.per.degree.lat
-      lng_meters_temp <- data.df$lng * meters.per.degree.lng(mean(data.df$lat))
-      lng.range.meters <- range(lng_meters_temp)
-      lat.bins.meters <- seq(from = lat.range.meters[1], to = lat.range.meters[2], by = space.gap)
-      lng.bins.meters <- seq(from = lng.range.meters[1], to = lng.range.meters[2], by = space.gap)
-      lat.bins <- lat.bins.meters / meters.per.degree.lat
-      lng.bins <- lng.bins.meters / meters.per.degree.lng(mean(data.df$lat))
-      data.df$lat.group <- cut(data.df$lat, breaks = lat.bins, include.lowest = T)
-      data.df$lng.group <- cut(data.df$lng, breaks = lng.bins, include.lowest = T)
-      data.df$lat.group[is.na(data.df$lat.group)] <- max(as.numeric(data.df$lat.group), na.rm = T) + 1
-      data.df$lng.group[is.na(data.df$lng.group)] <- max(as.numeric(data.df$lng.group), na.rm = T) + 1
-      result <- data.df %>% 
-        group_by(time.bin, lat.group, lng.group) %>% 
-        summarise(
-          time = mean(time, na.rm = T),
-          lng = mean(lng, na.rm = T),
-          lat = mean(lat, na.rm = T),
-          field = compile.function(field, na.rm = T),
-          n.points = n(),
-          .groups = 'drop'
-        )
-    }
-  } else {
-    data.df$lat.group <- 1:nrow(data.df)
-    data.df$lng.group <- 1:nrow(data.df)
-    result <- data.df %>% 
-      group_by(time.bin, lat.group, lng.group) %>% 
-      summarise(
-        time = mean(time, na.rm = T),
-        lng = mean(lng, na.rm = T),
-        lat = mean(lat, na.rm = T),
-        field = compile.function(field, na.rm = T),
-        n.points = n(),
-        .groups = 'drop'
-      )
-  }
-  if (street.aligned && space.gap > 0) {
-    final.result <- data.frame(
-      time = result$time,
-      lng = result$lng,
-      lat = result$lat,
-      field = result$field,
-      n.points = result$n.points,
-      street_heading = result$mean_heading
+  first.date <- time.data %>% min()
+  if (street.aligned) dt[, heading := calculate.street.heading(lng, lat)]
+  else dt[, heading := 0]
+  rad.tolerance <- street.angle.tolerance * pi / 180
+  y.gap.meters <- rad.tolerance %>% sin() * space.gap
+  dt[, time.bin := time %>% cut(breaks = seq(time %>% min(), time %>% max() + time.gap, by = time.gap), include.lowest = T, labels = F) %>% as.integer()]
+  dt[, lat.m := meters.per.degree.lat * lat]
+  dt[, lng.m := lat %>% meters.per.degree.lng() * lng]
+  dt[, x.along := heading %>% cos() * lng.m + heading %>% sin() * lat.m]
+  dt[, y.across := -heading %>% sin() * lng.m + heading %>% cos() * lat.m]
+  dt.expanded <- dt[, {
+    bx <- (x.along / space.gap) %>% floor()
+    by <- (y.across / y.gap.meters) %>% floor()
+    .(
+      time.bin = time.bin,
+      x.bin = bx,
+      y.bin = by,
+      minX.bin = bx * space.gap,
+      maxX.bin = (bx + 1) * space.gap,
+      minY.bin = by * y.gap.meters,
+      maxY.bin = (by + 1) * y.gap.meters,
+      speed = speed,
+      name = name,
+      lng = lng,
+      lat = lat,
+      heading = heading
     )
-  } else {
-    final.result <- data.frame(
-      time = result$time,
-      lng = result$lng,
-      lat = result$lat,
-      field = result$field,
-      n.points = result$n.points
+  }, by = 1:(dt %>% nrow())]
+  result <- dt.expanded[, {
+    list(
+      time = (time.bin * time.gap + first.date) %>% middle.value(),
+      lng = lng %>% middle.value(),
+      lat = lat %>% middle.value(),
+      minX = minX.bin[1],
+      maxX = maxX.bin[1],
+      minY = minY.bin[1],
+      maxY = maxY.bin[1],
+      field = speed %>% mean(),
+      summarised = name[1],
+      n.points = .N,
+      street.heading = heading %>% median(na.rm = T),
+      street.heading.from.north = 90 - heading %>% median(na.rm = T) * 180 / pi + ifelse(heading %>% median(na.rm = T) > pi / 2, 360, 0)
     )
-  }
-  final.result <- final.result[order(final.result$time), ]
-  return(final.result)
+  }, by = .(time.bin, x.bin, y.bin)]
+  return(result[order(time.bin, x.bin)])
 }
 ```
+
+[Ver Diagrama de Flujo](https://mermaid.live/edit#pako:eNptVFFu2zgQvQpBIEALKFrbUWJHQFtk3TbNzyJI0p_aQTGhxgqxFKmSVFFvkMPsAfZrD7DA5mI7JGVb9tYftjSeeW_emyGfuDAV8pLXFtpHdvd-qRl9bj1Y_2pxpaWQpmTfOtC-a_IKPNy_ZsfHb9k1WGjc4gaFfJCWtWBf_mzQW-NK5mWDGVO6pi_wGVtJVFUWw3kNbcZcC2Lz6C2iz0HJWiMlCdO0UmG-6rTw0uj71FD6TqSR_47AfpV6MQclOgU2oT9IXbKVMia9s1-2pHs4fXEEunIXifvp33_2m2Fv3rC7m88f3j0Pa4-O2A00wKhKI1TAgFEPCl36ewtH4Oz25a_I8YkSpa53zVbSohDy5W_NKmQi1G-SWOdAV4ZSVmhRCwmOCdTeAnGwNaMR6EmvZlMSOOZGf_8IwhvrdjyrGKC6wEIJaF0kTZOi1mnsVRjZ_CtNitDpV9c9-gAxMtyGqe15TnY7hmGaMnbXWrNG4QMkQ32gUkEvdM1IjHahGVA91wY7El1a07W9jYuL2na0Xaw1uxlngfmrMrqWviMHQBFoCP0feH9ov5nt3H4yLvp3qPNWNq3CA7VRiA-0RLnpICn1xh2oSQg7TT3izyURbF6HrACs6_R8qIJm4oySFURbU3hoV-S6qGuLNXhiapUUxHR4qhg5JqBpTdBDp5rmFZoRYZ9Dc-Z-AD1QsUUetrUNJvc8-MEG0ko0WEkTnfMSiTPbOJjtDFyH9fQY-2k7HRrSeWuk9m7PgogeeW7Qdcov5hbDeaJTka_ockC6bMI6GFuhpj3sPQ60PU6qixAfdPVq8VHq-9fL3krXPaSLcMmvrRHooJF09gy7RFPTDbeSwix5yh0cwF1gcGZ2wc06pAjqimd038qKl952mPEGbQPhlT-FlCX3j9jgkpf0WIH9PTA-U00L-osxzaaMZlM_8nIFytFb15IJ-F4CCWi2UbpBKrRzQ5bycnJ-EkF4-cR_8HJ8Os2Ls6I4nRVnk8lsNp1mfM3L46I4z0cn5yeTs8l4dDYeFafPGf8jEk_y8_FoWsyK2Xh6Oipms5Pn_wDIyRlm)
+
+```{mermaid}
+graph TD
+    Start([Inicio: quantum.data]) --> Params[Recibir parámetros: time, lng, lat, field, time.gap, space.gap, street.aligned, compile.function]
+    
+    Params --> TimeBin[Calcular time.bin: floor time / time.gap]
+    
+    TimeBin --> IsAligned{¿street.aligned == TRUE?}
+    
+    %% Rama Alineada a Calles
+    IsAligned -- Sí --> Heading[Calcular dirección de calle Heading usando diferencias centrales y atan2]
+    Heading --> ConvFactors[Calcular factores de conversión metros a grados: C_lat y C_lng]
+    ConvFactors --> SpaceBin[Calcular bins espaciales proyectados en dirección de la calle y transversal]
+    SpaceBin --> GroupAligned[Agrupar por time.bin, bin_longitudinal y bin_transversal]
+    
+    %% Rama No Alineada
+    IsAligned -- No --> SpaceBinSimple[Calcular bins de latitud y longitud directos]
+    SpaceBinSimple --> GroupSimple[Agrupar por time.bin, lat.group y lng.group]
+    
+    %% Consolidación
+    GroupAligned --> Aggregate[Aplicar compile.function al campo de datos por cada grupo]
+    GroupSimple --> Aggregate
+    
+    Aggregate --> Stats[Calcular promedios de tiempo, latitud, longitud y conteo de puntos n.points]
+    
+    Stats --> Result[Crear data.frame final ordenado por tiempo]
+    Result --> End([Fin])
+
+    subgraph "Procesamiento Geográfico"
+        Heading
+        ConvFactors
+        SpaceBin
+    end
+```
+
 
 ## Descripción Matemática
 
@@ -5107,9 +5124,11 @@ Para cada celda no vacía ($|C_{k,\ell,m}| > 0$):
    - Longitud promedio: $\bar{\lambda}_{k,\ell,m} = \frac{1}{|C|} \sum_{i \in C} \lambda_i$
    - Latitud promedio: $\bar{\phi}_{k,\ell,m} = \frac{1}{|C|} \sum_{i \in C} \phi_i$
 3. **Valor del campo agregado**:
-   $$
+
+$$
    \bar{v}_{k,\ell,m} = \text{compile.function}(\{v_i : i \in C\})
-   $$
+$$
+
    Donde $\text{compile.function}$ puede ser:
    - Media: $\frac{1}{|C|} \sum_{i \in C} v_i$
    - Máximo: $\max\{v_i : i \in C\}$
@@ -5131,9 +5150,10 @@ Para cada celda no vacía ($|C_{k,\ell,m}| > 0$):
 **6.3 Propiedades de la Agregación**
 
 1. **Conservación de masa** (para funciones de suma):
-   $$
+
+$$
    \sum_{k,\ell,m} \bar{v}_{k,\ell,m} = \sum_{i=1}^n v_i
-   $$
+$$
 2. **Monotonicidad**: Si $\text{compile.function}$ es monótona, el orden se preserva.
 3. **Idempotencia**: Si todos los puntos caen en la misma celda y $\text{compile.function} = \text{identidad}$, entonces $\bar{v} = v_i$ para todo $i$.
 
@@ -5223,3 +5243,783 @@ La transformación preserva:
 3. **Reducción de error en curvas**: Menor distorsión en tramos curvos
 4. **Separación natural de direcciones**: Diferentes sentidos de circulación se discretizan por separado
 5. **Interpretabilidad física**: Las dimensiones de las celdas tienen significado físico (largo/ancho de calle)
+
+## Ejemplo
+
+```{r discretization.example, eval=FALSE}
+degrees.format <- function(deg, sec.decimals = 3) {
+  pos <- deg %>% abs()
+  degrees <- (pos %>% floor() * deg %>% sign()) %>% as.integer()
+  minutes <- ((pos * 60) %% 60) %>% floor()
+  seconds <- ((pos * 3600) %% 60) %>% round(sec.decimals)
+  return(paste0(degrees, "°", sprintf("%02d", minutes), "'", sprintf(paste0("%0", 2 + sec.decimals + ifelse(sec.decimals > 0, 1, 0), ifelse(sec.decimals > 0, paste0(".", sec.decimals, "f"), "d")), seconds), "''"))
+}
+filtered.waze.routes <- waze.routes[waze.routes$updateTime >= "2026-01-16" %>% as.POSIXct(tz = "UTC") & waze.routes$updateTime <= "2026-01-18" %>% as.POSIXct(tz = "UTC"),]
+sg <- 100
+tg <- 1800
+start.sys <- Sys.time()
+discretization.example <- quantum.data(
+  time.data = filtered.waze.routes$updateTime,
+  lng.data = (filtered.waze.routes$minX + filtered.waze.routes$maxX) / 2,
+  lat.data = (filtered.waze.routes$minY + filtered.waze.routes$maxY) / 2,
+  field.data = filtered.waze.routes$id,names.data = filtered.waze.routes$name,
+  speed.data = filtered.waze.routes$speed,
+  minX = filtered.waze.routes$minX,
+  maxX = filtered.waze.routes$maxX,
+  minY = filtered.waze.routes$minY,
+  maxY = filtered.waze.routes$maxY,
+  space.gap = sg,
+  time.gap = tg,
+  street.aligned = T,
+  street.angle.tolerance = 10
+)
+end.sys <- Sys.time()
+dt.sys <- end.sys - start.sys
+
+plot.data <- discretization.example %>%
+  filter(
+    !(time %>% is.na()),
+    !(lng %>% is.na()),
+    !(lat %>% is.na()),
+    !(field %>% is.na())
+  ) %>%
+  arrange(time) %>%
+  mutate(
+    time = time %>% as.POSIXct(tz = "UTC")
+  )
+
+rectangle <- function(lng, lat, angle, dx, dy){
+  corners.x <- c(-1, -1, 1, 1, -1) * dx / 2
+  corners.y <- c(1, -1, -1, 1, 1) * dy / 2
+  rot.x <- angle %>% cos() * corners.x - angle %>% sin() * corners.y
+  rot.y <- angle %>% sin() * corners.x + angle %>% cos() * corners.y
+  final.lng <- lng + rot.x / lat %>% meters.per.degree.lng()
+  final.lat <- lat + rot.y / meters.per.degree.lat
+  return(cbind(final.lng, final.lat))
+}
+
+abs.rectangle <- function(minX, minY, maxX, maxY, angle, center.lat) {
+  corners.x <- c(minX, maxX, maxX, minX, minX)
+  corners.y <- c(minY, minY, maxY, maxY, minY)
+  final.lng.m <- angle %>% cos() * corners.x - angle %>% sin() * corners.y
+  final.lat.m <- angle %>% sin() * corners.x + angle %>% cos() * corners.y
+  final.lng <- final.lng.m / center.lat %>% meters.per.degree.lng()
+  final.lat <- final.lat.m / meters.per.degree.lat
+  return(cbind(corners.x, corners.y))
+}
+
+pal <- colorNumeric(
+  palette = c("blue", "green", "yellow", "red"),
+  domain = plot.data$field
+)
+
+sd <- plot.data %>% SharedData$new()
+
+ui <- fluidPage(
+  titlePanel("Mapa con Filtro de Tiempo"),
+  sidebarLayout(
+    fluidRow(
+      column(
+        width = 12,
+        wellPanel(
+          sliderInput(
+            "time_range",
+            "Selecciona el rango de tiempo:",
+            min = plot.data$time %>% min(),
+            max = plot.data$time %>% max(),
+            value = plot.data$time %>% range(),
+            step = tg,
+            animate = T,
+            width = "100%",
+            timezone = "+0000"
+          )
+        )
+      )
+    ),
+    fluidRow(
+      column(
+        width = 12,
+        leafletOutput("map", height = "600px")
+      )
+    )
+  )
+)
+
+rect.polys <- 1:(plot.data %>% nrow()) %>% lapply(., function(i){
+  d <- plot.data[i,]
+  if(d$street.heading %>% is.na() || d$lng %>% is.na()) return(st_polygon())
+  coords <- rectangle(d$lng, d$lat, d$street.heading, sg, 5)
+  coords %>% list() %>% st_polygon() %>% return()
+})
+
+abs.rect.polys <- 1:(plot.data %>% nrow()) %>% lapply(., function(i){
+  d <- plot.data[i,]
+  if(d$lng %>% is.na()) return(st_polygon())
+  abs.coords <- abs.rectangle(d$minX, d$minY, d$maxX, d$maxY, d$street.heading, d$lat)
+  abs.coords %>% list() %>% st_polygon() %>% return()
+})
+
+plot.data.sf <- plot.data %>% st_sf(geometry = rect.polys %>% st_sfc(crs = 4326))
+abs.plot.data.sf <- plot.data %>% st_sf(geometry = abs.rect.polys %>% st_sfc(crs = 4326))
+
+server <- function(input, output, options){
+  f.data <- reactive({
+    input$time_range %>% req()
+    plot.data.sf %>%
+      filter(time >= input$time_range[1] & time <= input$time_range[2]) %>%
+      group_by(geometry) %>%
+      summarise(
+        field = field %>% weighted.mean(w = n.points),
+        lng = lng %>% first(),
+        lat = lat %>% first(),
+        street.heading = street.heading %>% mean(na.rm = T),
+        n.points = n.points %>% sum(),
+        time.info = paste(time %>% min() %>% format(., "%H:%M"), "-", time %>% max() %>% format(., "%H:%M")),
+        date.info =  ifelse(time %>% min() %>% format(., "%Y-%m-%d") == time %>% max() %>% format(., "%Y-%m-%d"), time %>% min() %>% format(., "%Y-%m-%d"), paste(time %>% min() %>% format(., "%Y-%m-%d"), "-", time %>% max() %>% format(., "%Y-%m-%d"))),
+        street.heading.from.north = street.heading.from.north %>% first(),
+        .groups = 'drop'
+      )
+  })
+  abs.f.data <- reactive({
+    input$time_range %>% req()
+    abs.plot.data.sf %>%
+      filter(time >= input$time_range[1] & time <= input$time_range[2])
+  })
+  output$map <- renderLeaflet({
+    leaflet() %>%
+      addTiles() %>%
+      addLayersControl(
+        overlayGroups = c("Límites Originales", "Velocidad Discretizada"),
+        options = layersControlOptions(collapsed = F)
+      ) %>%
+      addScaleBar(position = "bottomleft") %>%
+      setView(
+        lng = plot.data$lng %>% median(na.rm = T),
+        lat = plot.data$lat %>% median(na.rm = T),
+        zoom = 12
+      )
+  })
+  observe({
+    data.to.plot <- f.data()
+    abs.data.to.plot <- abs.f.data()
+    proxy <- leafletProxy("map") %>% clearShapes()
+    if(data.to.plot %>% nrow() == 0){
+      proxy
+      return()
+    }
+    proxy %>% 
+      addPolygons(
+        data = abs.data.to.plot,
+        color = "black",
+        fill = F,
+        group = "Límites Originales"
+      ) %>%
+      addPolygons(
+        data = data.to.plot,
+        fillColor = ~pal(field),
+        color = "black",
+        fillOpacity = 0.8,
+        weight = 0.5,
+        popup = ~paste0(
+          "Velocidad: ", field %>% round(4),
+          " km/h<br>Fecha: ", date.info,
+          "<br>Hora: ", time.info,
+          "<br>Longitud: ", lng %>% degrees.format(),
+          "<br>Latitud: ", lat %>% degrees.format(),
+          "<br>Dirección: ", street.heading.from.north, "°"),
+        group = "Velocidad Discretizada"
+      )
+  })
+}
+
+shinyApp(ui, server)
+```
+
+# Base de Datos
+
+## Creación de tablas
+
+[Ver Modelo Entidad Relación](https://mermaid.live/edit#pako:eNq9Wd1T4zYQ_1cyfrqbgRsSJyH4LdzlWubo0aFMHzqZyQhbCbrYkivLlBzkf6-sD0eWZYOD27yQSKvVfmn3t8uzF5IIeoEH6RcENhQkSzzgH0a2EA-e5Y_ic_X9bvHL4naAosHS-_3bYH619A67l9c3lx-G04_ynFzfL9WXjOQ0hG9n9uf89vOv89sPo8nk4wCDBFr8UkgTlGWI4P54CrlXXSXVu2yLV4Li6zfXdkZDe9u6-BiV3nh5SpPGyzMG2DGOOXPaMERs915mFbMV0jXLDkNGaG_CZ4xCyN4dUObBwh7NfqfoPscg7i-EQQwpW7FdCvvmmeX3vbCtRC1n2GgceW2EKPfxUc98eNaiTgjyrEcbUZLzMC02-uZ5nNEbdP8H_IQrwbd7inEksOLzZX63uLv6bTGI-EM9LH-9vpnfDR5Qxt8nClcMufy_piRpS1uFBm37jLh25dUxxBv2YK-65fgBklUMH2HcMUSlh1KCMOtuT3m4WX7AEMujmkljgjfWRnkfjuCTK9r_a2e3JbsKV5lD2kjEu2y2yjaxV9YIu8qGKAytsaNyr4vm8ubmejH_PghJksaQe4nClFBWJ2AUrNc8vBEOUQQxe4cT5QaFMQL3KOaGfFtARzAGu7p2PG22KX_IA42xjfCPnO7kszgi__CUZrwom2sag2PAIGcqTjqZdg_yv3OAWcXSekfWiBYDCt1aEVch5yu1rSvceLN0knEL7ADhFuHNak3iCNLeqkvHwmJ41Q0PpHiNajzCBxTGR1w4FWFkJrBXcOE7QEgT0kwhjP6fGtw5BwnZ6mn2yV5KuVFQ0a50LwSNtU8TKN-2kZROqaVEkjaALJ7Pk0qWbkmXpavuKcBRb45PeKd9FN5veiRCvEbhY4S3_ULIlJJHdFTW8Bs6Rr5EQW9vocwqZ11assor4nAObiioxpYu-QTHTsQhLN3agku7tclcxIw0B6dyb0NczGpoZV9fIWKrTQZ9uJGwU8awYvrl5fT05Vm7MyilaaOxBarMihTxAasEyudmCt0XRC9y7BBo15qDDX2lJNDjBGNYoQhUMbZ4GP20oqt2w4FuEFytsnmiuLtEv_VG1CLVKNjdCVvEMnn9UVep5FaxihyZ2LJpvGwNJiwyAzS7XCXILC9Js1aNp01d4hQXrdGrBrpTfJVOdIQOjKXCROuhEZTZIyl2CkzaNBU4bJNqNOjAuDapxoW1sYFLG9X_1sYBTs3N0DIbU6V6hVjX39pUwPJ3pU-opOuWd2fDS8WzdKVGdSZo1I9QvGlbPg30LKIDRrBRmkUoH4gja8jorQasLPeKg8xaQVlk7aJq5zNVBKxKaVMZpcBlU5dUchSvGJlz6kCNfh0T7NfYmQNnRSvWqywNosr1h_VAjZe9E29D-Z-A0RyeeFylBBQ_PVHalx57gLwcewH_GgG6LerOnp9JAf6LkEQf467fPHjBGsQZ_5WnBaRV_5UoSSDm1vtMcsy8YHgxmwgmXvDsPXnB6Wg4_jS9GA2nI394MZ7MTrwdXx3y1dn5ZOyP_enYP7sY-_sT76e4d_Rp6I_PZ5Ph-cQf-ePZ1N__CyklP5o)
+
+```{mermaid}
+erDiagram
+    token {
+        INTEGER id "PK AI"
+        BLOB(16) token
+    }
+
+    source {
+        INTEGER id "PK AI"
+        VARCHAR(255) name
+    }
+
+    permission {
+        INTEGER id "PK AI"
+        VARCHAR(255) name
+    }
+
+    token_source {
+        INTEGER id "PK AI"
+        INTEGER tkn_id "FK"
+        INTEGER src_id "FK"
+    }
+
+    token_permission {
+        INTEGER id "PK AI"
+        INTEGER tkn_id "FK"
+        INTEGER prm_id "FK"
+    }
+
+    state {
+        INTEGER id "PK AI"
+        VARCHAR(20) name
+    }
+
+    city {
+        INTEGER id "PK AI"
+        VARCHAR(20) name
+        INTEGER state_id "FK"
+    }
+
+    sector {
+        INTEGER id "PK AI"
+        VARCHAR(20) name
+    }
+
+    street {
+        INTEGER id "PK AI"
+        VARCHAR(255) name
+        INTEGER city_id "FK"
+    }
+
+    tribunal {
+        INTEGER id "PK AI"
+        VARCHAR(255) name
+    }
+
+    alert_type {
+        INTEGER id "PK AI"
+        VARCHAR(255) name
+    }
+
+    alert_subtype {
+        INTEGER id "PK AI"
+        VARCHAR(255) name
+        INTEGER type_id "FK"
+    }
+
+    alert_direction {
+        INTEGER id "PK AI"
+        VARCHAR(10) name
+    }
+
+    alert_cause {
+        INTEGER id "PK AI"
+        VARCHAR(255) name
+    }
+
+    route_name {
+        INTEGER id "PK AI"
+        VARCHAR(255) name
+    }
+
+    route_type {
+        INTEGER id "PK AI"
+        VARCHAR(10) name
+    }
+
+    waze_route {
+        INTEGER id "PK AI"
+        INTEGER src_id "FK"
+        DATETIME date
+        FLOAT historic_time
+        INTEGER from_id "FK"
+        INTEGER name_id "FK"
+        INTEGER to_id "FK"
+        FLOAT length
+        FLOAT time
+        INTEGER jam_level
+        INTEGER type_id "FK"
+    }
+
+    route_point {
+        INTEGER id "PK AI"
+        INTEGER route_id "FK"
+        FLOAT latitude
+        FLOAT longitude
+        INTEGER index
+    }
+
+    alert {
+        INTEGER id "PK AI"
+        INTEGER src_id "FK"
+        DATETIME date
+        INTEGER city_id "FK"
+        INTEGER subtype_id "FK"
+        INTEGER cause_id "FK"
+        FLOAT km
+        FLOAT fine
+        INTEGER sector_id "FK"
+        INTEGER tribunal_id "FK"
+        BOOLEAN complete_report
+        BOOLEAN traffic_incident
+        FLOAT latitude
+        FLOAT longitude
+        FLOAT reliability
+        FLOAT length
+        FLOAT delay
+        INTEGER dir_id "FK"
+        INTEGER waze_route_id "FK"
+    }
+
+    injury_level {
+        INTEGER id "PK AI"
+        VARCHAR(15) level
+    }
+
+    injury_place {
+        INTEGER id "PK AI"
+        VARCHAR(5) place
+    }
+
+    injury {
+        INTEGER id "PK AI"
+        INTEGER quantity
+        INTEGER alert_id "FK"
+        INTEGER level_id "FK"
+        INTEGER place_id "FK"
+    }
+
+    alert_street {
+        INTEGER id "PK AI"
+        INTEGER alert_id "FK"
+        INTEGER street_id "FK"
+    }
+
+    tracking_folder {
+        INTEGER id "PK AI"
+        VARCHAR(10) name
+    }
+
+    route {
+        INTEGER id "PK AI"
+        VARCHAR(5) name
+        INTEGER folder_id "FK"
+    }
+
+    vehicle {
+        INTEGER id "PK AI"
+        VARCHAR(6) plate
+        VARCHAR(20) name
+    }
+
+    direction {
+        INTEGER id "PK AI"
+        VARCHAR(20) name
+    }
+
+    speed {
+        INTEGER id "PK AI"
+        INTEGER src_id "FK"
+        DATETIME date
+        FLOAT latitude
+        FLOAT longitude
+        FLOAT speed
+        FLOAT fix
+        FLOAT precision
+        INTEGER city_id "FK"
+        INTEGER route_id "FK"
+        INTEGER vehicle_id "FK"
+        INTEGER direction
+        FLOAT dop
+        VARCHAR(255) comment
+        INTEGER dir_id "FK"
+    }
+
+    brand {
+        INTEGER id "PK AI"
+        VARCHAR(20) name
+    }
+
+    model {
+        INTEGER id "PK AI"
+        VARCHAR(25) name
+        INTEGER brand_id "FK"
+    }
+
+    link_type {
+        INTEGER id "PK AI"
+        VARCHAR(10) name
+    }
+
+    provider {
+        INTEGER id "PK AI"
+        VARCHAR(30) name
+    }
+
+    camera {
+        INTEGER id "PK AI"
+        INTEGER src_id "FK"
+        VARCHAR(50) name
+        INTEGER city_id "FK"
+        DATETIME integration
+        BOOLEAN online
+        INTEGER link_id "FK"
+        INTEGER provider_id "FK"
+        VARCHAR(20) camera_id
+        VARCHAR(20) encoder_id
+        INTEGER model_id "FK"
+        INTEGER encoder_model_id "FK"
+        FLOAT latitude
+        FLOAT longitude
+    }
+
+    model ||--|{ camera : model_id
+    model ||--|{ camera : encoder_model_id
+    source ||--|{ waze_route: src_id
+    speed }|--|| city : city_id
+    state ||--|{ city : state_id
+    city ||--|{ street : city_id
+    alert_type ||--|{ alert_subtype : type_id
+    alert_subtype ||--|{ alert : subtype_id
+    alert_cause ||--|{ alert : cause_id
+    alert_direction ||--|{ alert : dir_idS
+    city ||--|{ alert : city_id
+    sector ||--|{ alert : sector_id
+    tribunal ||--|{ alert : tribunal_id
+    source ||--|{ alert: src_id
+    street ||--|{ alert_street : street_id
+    street ||--|{ waze_route : from_id
+    street ||--|{ waze_route : to_id
+    alert_street }|--|| alert : alert_id
+    alert ||--|{ injury : alert_id
+    injury_level ||--|{ injury : level_id
+    injury_place ||--|{ injury : place_id
+    route_name ||--|{ waze_route : name_id
+    route_type ||--|{ waze_route : type_id
+    route_point }|--|| waze_route : route_id
+    waze_route ||--|{ alert : waze_route_id
+    camera }|--|| city : city_id
+    tracking_folder ||--|{ route : folder_id
+    route ||--|{ speed : route_id
+    vehicle ||--|{ speed : vehicle_id
+    direction ||--|{ speed : dir_id
+    speed }|--|| source: src_id
+    brand ||--|{ model : brand_id
+    link_type ||--|{ camera : link_id
+    provider ||--|{ camera : provider_id
+    camera }|--|| source: src_id
+    token ||--|{ token_source: tkn_id
+    token_source }|--|| source: src_id
+    token_permission }|--|| token: tkn_id
+    permission ||--|{ token_permission: prm_id
+```
+
+
+```{sql creation, eval=FALSE}
+CREATE TABLE IF NOT EXISTS token (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  token BINARY(16) UNIQUE DEFAULT UUID()
+)
+
+CREATE TABLE IF NOT EXISTS source (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name VARCHAR(255)
+)
+
+CREATE TABLE IF NOT EXISTS permission (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name VARCHAR(255)
+)
+
+CREATE TABLE IF NOT EXISTS token_source (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tkn_id INTEGER REFERENCES token(id),
+  src_id INTEGER REFERENCES source(id)
+)
+
+CREATE TABLE IF NOT EXISTS token_permission (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tkn_id INTEGER REFERENCES token(id),
+  prm_id INTEGER REFERENCES permission(id)
+)
+
+CREATE TABLE IF NOT EXISTS state (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name VARCHAR(20)
+)
+
+CREATE TABLE IF NOT EXISTS city (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name VARCHAR(20),
+  state_id INTEGER REFERENCES state(id)
+)
+
+CREATE TABLE IF NOT EXISTS sector (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name VARCHAR(20)
+)
+
+CREATE TABLE IF NOT EXISTS street (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name VARCHAR(255),
+  city_id INTEGER REFERENCES city(id)
+)
+
+CREATE TABLE IF NOT EXISTS tribunal (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name VARCHAR(255)
+)
+
+CREATE TABLE IF NOT EXISTS alert_type (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name VARCHAR(255)
+)
+
+CREATE TABLE IF NOT EXISTS alert_subtype (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name VARCHAR(255),
+  type_id INTEGER REFERENCES alert_type(id)
+)
+
+CREATE TABLE IF NOT EXISTS alert_direction (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name VARCHAR(10)
+)
+
+CREATE TABLE IF NOT EXISTS alert_cause (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name VARCHAR(255)
+)
+
+CREATE TABLE IF NOT EXISTS route_name (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name VARCHAR(255)
+)
+
+CREATE TABLE IF NOT EXISTS route_type (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name VARCHAR(10)
+)
+
+CREATE TABLE IF NOT EXISTS waze_route (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  src_id INTEGER REFERENCES source(id),
+  date DATETIME,
+  historic_time FLOAT,
+  from_id INTEGER REFERENCES street(id),
+  name_id INTEGER REFERENCES route_name(id),
+  to_id INTEGER REFERENCES street(id),
+  length FLOAT,
+  time FLOAT,
+  jam_level INTEGER,
+  type_id INTEGER REFERENCES route_type(id)
+)
+
+CREATE TABLE IF NOT EXISTS route_point (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  route_id INTEGER REFERENCES waze_route(id),
+  latitude FLOAT,
+  longitude FLOAT,
+  index INTEGER
+)
+
+CREATE TABLE IF NOT EXISTS alert (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  src_id INTEGER REFERENCES source(id),
+  date DATETIME,
+  city_id INTEGER REFERENCES city(id),
+  subtype_id INTEGER REFERENCES alert_subtype(id),
+  cause_id INTEGER REFERENCES alert_cause(id),
+  km FLOAT,
+  fine FLOAT,
+  sector_id INTEGER REFERENCES sector(id),
+  tribunal_id INTEGER REFERENCES tribunal(id),
+  complete_report TINYINT(1),
+  traffic_incident TINYINT(1),
+  latitude FLOAT,
+  longitude FLOAT,
+  reliability FLOAT,
+  length FLOAT,
+  delay FLOAT,
+  dir_id INTEGER REFERENCES alert_direction(id),
+  waze_route_id INTEGER REFERENCES waze_route(id)
+)
+
+CREATE TABLE IF NOT EXISTS injury_level (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name VARCHAR(15)
+)
+
+CREATE TABLE IF NOT EXISTS injury_place (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name VARCHAR(5)
+)
+
+CREATE TABLE IF NOT EXISTS injury (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  quantity INTEGER,
+  alert_id INTEGER REFERENCES alert(id),
+  level_id INTEGER REFERENCES injury_level(id),
+  place_id INTEGER REFERENCES injury_place(id)
+)
+
+CREATE TABLE IF NOT EXISTS alert_street (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  alert_id INTEGER REFERENCES alert(id),
+  street_id INTEGER REFERENCES street(id)
+)
+
+CREATE TABLE IF NOT EXISTS tracking_folder (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name VARCHAR(10)
+)
+
+CREATE TABLE IF NOT EXISTS route (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name VARCHAR(5),
+  folder_id INTEGER REFERENCES tracking_folder(id)
+)
+
+CREATE TABLE IF NOT EXISTS vehicle (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  plate VARCHAR(6),
+  name VARCHAR(20)
+)
+
+CREATE TABLE IF NOT EXISTS direction (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name VARCHAR(20)
+)
+
+CREATE TABLE IF NOT EXISTS speed (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  src_id INTEGER REFERENCES source(id),
+  date DATETIME,
+  latitude FLOAT,
+  longitude FLOAT,
+  speed FLOAT,
+  fix FLOAT,
+  precision FLOAT,
+  city_id INTEGER REFERENCES city(id),
+  route_id INTEGER REFERENCES route(id),
+  vehicle_id INTEGER REFERENCES vehicle(id),
+  direction INTEGER,
+  dop FLOAT,
+  comment VARCHAR(255),
+  dir_id INTEGER REFERENCES alert_direction(id)
+)
+
+CREATE TABLE IF NOT EXISTS brand (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name VARCHAR(20)
+)
+
+CREATE TABLE IF NOT EXISTS model (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name VARCHAR(25),
+  brand_id INTEGER REFERENCES brand(id)
+)
+
+CREATE TABLE IF NOT EXISTS link_type (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name VARCHAR(10)
+)
+
+CREATE TABLE IF NOT EXISTS provider (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name VARCHAR(30)
+)
+
+CREATE TABLE IF NOT EXISTS speed (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  src_id INTEGER REFERENCES source(id),
+  name VARCHAR(50),
+  city_id INTEGER REFERENCES city(id),
+  integration DATETIME,
+  online BOOLEAN,
+  link_id INTEGER REFERENCES link_type(id),
+  provider_id INTEGER REFERENCES provider(id),
+  camera_id VARCHAR(20),
+  encoder_id VARCHAR(20),
+  model_id INTEGER REFERENCES model(id),
+  encoder_model_id INTEGER REFERENCES model(id),
+  latitude FLOAT,
+  longitude FLOAT
+)
+```
+
+## Insertar registros
+
+### Siniestros buses interurbanos(1).xlsx
+
+```{sql inserts0, eval=FALSE}
+
+```
+
+### GH026929.xlsx
+
+```{sql inserts1, eval=FALSE}
+
+```
+
+### DTPR
+
+```{sql inserts1.5, eval=FALSE}
+
+```
+
+### Data accidentes de carabineros.xlsx
+
+```{sql inserts2, eval=FALSE}
+
+```
+
+### Incidentes de tráfico radio.xlsx
+
+```{sql inserts3, eval=FALSE}
+
+```
+
+### Med velo CHIGUAYANTE.xlsx
+
+```{sql inserts4, eval=FALSE}
+
+```
+
+### Med velo LA VEGA.xlsx
+
+```{sql inserts5, eval=FALSE}
+
+```
+
+### Inventario CCTV Biobío(1).xlsx
+
+```{sql inserts7, eval=FALSE}
+
+```
+
+### Alertas de Tráfico.csv
+
+```{sql inserts8, eval=FALSE}
+
+```
+
+### Copia de Accidentes.csv
+
+```{sql inserts9, eval=FALSE}
+
+```
+
+### Waze for Cities Data Key Alerts Dashboard_Traffic Irregularities_Tabla(1).csv
+
+```{sql inserts10, eval=FALSE}
+
+```
+
+### Red de Waze
+
+```{sql inserts11, eval=FALSE}
+
+```
+
