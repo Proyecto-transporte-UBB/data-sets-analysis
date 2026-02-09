@@ -5,6 +5,7 @@
 # Session Data files
 .RData
 .RDataTmp
+.RDataTmp1
 
 # User-specific files
 .Ruserdata
@@ -61,3 +62,5 @@ rds-files/
 shapefiles/
 
 corr/
+
+data/
