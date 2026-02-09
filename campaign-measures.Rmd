@@ -1,0 +1,413 @@
+---
+title: "Campaña de medición"
+author: "Luciano Hernández"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    toc: true
+    toc_depth: 3
+    keep_tex: true
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+if (Sys.getenv("JAVA_HOME")=="") {
+  Sys.setenv(JAVA_HOME="C:/Program Files/Java/jre1.8.0_361")
+}
+knitr::opts_chunk$set(echo = TRUE)
+options(future.globals.maxSize = 8000 * 1024^2)
+options(java.parameters = "-Xmx2048m")
+library(ggspatial)
+library(OpenStreetMap)
+library(cowplot)
+library(data.table)
+library(dplyr)
+library(furrr)
+library(future.apply)
+library(ggcorrplot)
+library(ggmap)
+library(ggplot2)
+library(googlesheets4)
+library(grid)
+library(gridExtra)
+library(gtfsio)
+library(httr)
+library(kableExtra)
+library(knitr)
+library(leaflet)
+library(lubridate)
+library(maps)
+library(openxlsx)
+library(osmdata)
+library(prettymapr)
+library(progressr)
+library(protolite)
+library(purrr)
+library(RANN)
+library(readr)
+library(readxl)
+library(rjson)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(sf)
+library(stringr)
+library(tidygeocoder)
+library(tidyr)
+library(tidytransit)
+library(tidyverse)
+library(tidyxl)
+library(viridis)
+library(chilemapas)
+```
+
+```{r key.objects.campaign, include=FALSE}
+key.objects.campaign <- c("meters.per.degree.lat", "meters.per.degree.lng", "quantum.data", "waze.routes", "waze.routes.df", "climate.data.df", "gps.data.df", "speed.pistols.df", "police.type.accident", "police.type.vehicle")
+
+sum.time <- function(dt.list){
+  dt.list %>% sapply(., function(t){
+    (t %>% as.numeric()) * switch (t %>% units(),
+      "secs" = 1,
+      "mins" = 60,
+      "hours" = 3600
+    )
+  }) %>% sum()
+}
+
+haversine.dist <- function(lat1, lng1, lat2, lng2) {
+  R <- 6371000
+  dlat <- (lat2 - lat1) * pi / 180
+  dlon <- (lng2 - lng1) * pi / 180
+  a <- sin(dlat / 2)^2 + cos(lat1 * pi / 180) * cos(lat2 * pi / 180) * sin(dlon / 2)^2
+  c <- 2 * atan2(sqrt(a), sqrt(1 - a))
+  return(R * c)
+}
+
+min.haversine.dist <- function(lat, lng, p.lat, p.lng) {
+  dist <- haversine.dist(lat, lng, p.lat, p.lng)
+  dist[dist > 0] %>% min()
+}
+
+min.haversine.distances <- function(lat, lng) {
+  n <- min(lat %>% length(), lng %>% length())
+  1:n %>% sapply(., function(i) min.haversine.dist(lat[i], lng[i], lat[-i], lng[-i]))
+}
+
+haversine.distances <- function(lat, lng) {
+  if(lat %>% length() <= 1 | lng %>% length() <= 1) return(0)
+  lat.rad <- lat * pi / 180
+  lng.rad <- lng * pi / 180
+  x <- cos(lat.rad) * cos(lng.rad)
+  y <- cos(lat.rad) * sin(lng.rad)
+  z <- sin(lat.rad)
+  points <- cbind(x, y, z)
+  nn <- points %>% nn2(k = 2, treetype = "kd", searchtype = "standard")
+  R <- 6371000
+  distances <- sapply(1:(points %>% nrow()), function(i){
+    dot.product <- (points[i,] * points[nn$nn.idx[i, 2],]) %>% sum()
+    dot.product <- max(-1, min(1, dot.product))
+    ang.dist <- acos(dot.product)
+    R * ang.dist
+  })
+  return(distances)
+}
+
+replace.na <- function(lst, r = 0) {
+  lst.1 <- lst
+  lst.1[lst.1 %>% is.na()] <- r
+  lst.1
+}
+
+cities.map <- mapa_comunas %>%
+  st_as_sf() %>%
+  st_transform(crs = 4326) %>%
+  mutate(
+    nombre_comuna = codigos_territoriales$nombre_comuna[codigo_comuna %>% match(., codigos_territoriales$codigo_comuna)]
+  ) %>% st_make_valid()
+
+weekdays <- c("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")
+months <- c("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
+```
+
+```{r save, eval=FALSE, include=FALSE}
+save.image("~/GitHub/data-sets-analysis/.RData")
+save.time.sys <- list()
+for(ko in key.objects.campaign[!(key.objects.campaign %in% c("waze.routes", "waze.routes.df"))]) {
+  start.sys <- Sys.time()
+  file.name <- paste(ko, "rds", sep = ".")
+  file.path. <- paste("~/GitHub/data-sets-analysis/rds-files", file.name, sep = "/")
+  ko %>% get() %>% saveRDS(file = file.path.)
+  end.sys <- Sys.time()
+  dt.sys <- end.sys - start.sys
+  print(ko)
+  print(dt.sys)
+  save.time.sys[[ko]] <- dt.sys
+}
+total.save.dt <- save.time.sys %>% sum.time()
+```
+
+```{r load, include=FALSE}
+load.time.sys <- list()
+for(ko in key.objects.campaign) {
+  start.sys <- Sys.time()
+  file.name <- paste(ko, "rds", sep = ".")
+  file.path. <- paste("~/GitHub/data-sets-analysis/rds-files", file.name, sep = "/")
+  assign(ko, ko %>% readRDS(file = file.path.))
+  end.sys <- Sys.time()
+  dt.sys <- end.sys - start.sys
+  print(ko)
+  print(dt.sys)
+  load.time.sys[[ko]] <- dt.sys
+}
+total.load.dt <- load.time.sys %>% sum.time()
+```
+
+# Extracción y caracterización de datos
+
+## Red de Waze
+
+```{r getData0, eval=FALSE, include=FALSE}
+
+```
+
+## Cámaras UOCT
+
+```{r getData1, eval=FALSE, include=FALSE}
+
+```
+
+## Data clima
+
+```{r getData2, eval=FALSE, include=FALSE}
+climate.data <- list()
+base.folder <- "data/Data clima"
+files <- base.folder %>% list.files()
+for(file in files){
+  file.path <- paste(base.foder, file, sep = "/")
+  sheets <- file.path %>% excel_sheets()
+  dates <- sheets %>% str_replace_all(., "\\s*\\(\\d+\\)$", "") %>% str_replace_all(., setNames(
+    months,
+    c("enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre")
+  ))
+  dates[dates %>% dmy() %>% is.na()] <- paste(dates[dates %>% dmy() %>% is.na()], date %>% dmy() %>% year() %>% median(na.rm = T))
+  dates <- dates %>% dmy()
+  names(dates) <- sheets
+  for(sheet in sheets){
+    df <- file.path %>% read_excel(sheet = sheet, col_names = F) %>% t() %>% as.data.frame()
+    colnames(df) <- df[1,]
+    colnames(df)[1] <- "Hora"
+    df <- df[-1,]
+    df$Hora <- df$Hora %>% as.numeric()
+    df$Temperatura <- df$Temperatura %>% str_replace_all(., "° C", "") %>% str_replace_all(., ",", ".") %>% as.numeric()
+    df$Precipitaciones <- df$Precipitaciones %>% str_replace_all(., " mm", "") %>% str_replace_all(., ",", ".") %>% as.numeric()
+    df$`Probabilidad de nevada` <- df$`Probabilidad de nevada` %>% as.numeric()
+    df$Humedad <- df$Humedad %>% as.numeric()
+    df$`Velocidad del viento` <- df$`Velocidad del viento` %>% str_replace_all(., "Km/h", "") %>% as.numeric()
+    df$`Ráfaga de viento` <- df$`Ráfaga de viento` %>% str_replace_all(., "Km/h", "") %>% as.numeric()
+    df$`Ángulo del viento` <- df$`Ángulo del viento` %>% str_replace_all(., "°", "") %>% as.numeric()
+    df$Nubosidad <- df$Nubosidad %>% as.numeric()
+    df$Visibilidad <- df$Visibilidad %>% str_replace_all(., " Km", "") %>% as.numeric()
+    hour <- (df$Hora * 24) %>% floor()
+    minute <- ((df$Hora * 24 - hour) * 60) %>% floor()
+    second <- ((df$Hora * 24 - hour) * 60 - minute) * 60
+    df$Hora <- paste(dates[sheet], paste(hour, minute, second, sep = ":")) %>% as.POSIXct(format = "%Y-%m-%d %H:%M:%S", tz = "America/Santiago")
+    climate.data[[sheet]] <- df
+  }
+}
+climate.data.df <- climate.data %>% bind_rows()
+climate.data.df$Clima <- climate.data.df$Clima %>% as.factor()
+climate.data.df$`Dirección del viento` <- climate.data.df$`Dirección del viento` %>% as.factor()
+climate.data.df %>% summary()
+```
+
+### Procesamiento y Normalización de Datos
+
+**Paso a paso**
+
+- Se leen los archivos de las carpetas
+- Por cada archivo, se crea la variable `dates` a partir de los nombres de las hojas
+- Se leen las hojas y se obtiene la traspuesta para que las filas sean columnas y viceversa
+- Se establece la primera fila como los nombres de las columnas
+- Se elimina la priera fila
+- Se establece que la primera columna se llama "Hora"
+- "Hora" se convierte en numeric
+- "Temperatura" se le quita el "° C", se reemplaza el "," por "." y se convierte en numeric
+- "Precipitaciones" se le quita el " mm", se reemplaza el "," por "." y se convierte en numeric
+- "Probabilidad de nevada" se convierte en numeric
+- "Humedad" se convierte en numeric
+- "Velocidad del viento" se le quita el "Km/h" y se convierte en numeric
+- "Ángulo del viento" se le quita el "°" y se convierte en numeric
+- "Nubosidad" se convierte en numeric
+- "Visibilidad" se le quita el " Km" y se convierte en numeric
+- "Hora" se convierte en la concatenación del elemento correspondiente de `dates` y "Hora" separado en hora, minuto y segundo y se convierte en POSIXct con formato "%Y-%m-%d %H:%M:%S"
+- Se unen los datasets en uno
+- "Clima" y "Dirección del viento" se convierten en factor
+
+## GPS
+
+```{r getData3, eval=FALSE, include=FALSE}
+gps.data <- list()
+base.folder <- "data/GPS"
+folders <- base.folder %>% list.dirs(recursive = F) %>% basename()
+for(folder in folders){
+  files <- paste(base.folder, folder, sep = "/") %>% list.files(full.names = T)
+  for(file in files){
+    df <- read_excel(file, range = "C10:X10000")
+    df <- df[!(df$IMEI %>% is.na()),]
+    df <- df %>%
+      mutate(
+        `Reporte valido gps` = str_match(`Sensores:`, "Reporte valido gps:\\s*(.*?)(?:\r\n|$)")[,2],
+        `Numero de satelites` = str_match(`Sensores:`, "Numero de satelites:\\s*(.*?)(?:\r\n|$)")[,2] %>% as.numeric(),
+        `Nivel de GSM` = str_match(`Sensores:`, "Nivel de GSM:\\s*(.*?)(?:\r\n|$)")[,2],
+        `Cargando bateria GPS` = str_match(`Sensores:`, "Cargando bateria GPS:\\s*(.*?)(?:\r\n|$)")[,2],
+        `Nivel de bateria GPS` = str_match(`Sensores:`, "Nivel de bateria GPS:\\s*(.*?)(?:\r\n|$)")[,2],
+        `Voltaje bateria GPS` = str_match(`Sensores:`, "Voltaje bateria GPS:\\s*(.*?)(?:\r\n|$)")[,2] %>% as.numeric(),
+        Orientación.Ángulo = str_extract(Orientación, "[0-9.]+") %>% as.numeric(),
+        Orientación.Punto.Cardinal = str_extract(Orientación, "[A-Z]+")
+      ) %>% select(-`Sensores:`, -Orientación)
+    gps.data[[file]] <- df
+  }
+}
+gps.data.df <- gps.data %>% bind_rows()
+gps.data.df$IMEI <- gps.data.df$IMEI %>% as.factor()
+gps.data.df$Vehiculo <- gps.data.df$Vehiculo %>% as.factor()
+gps.data.df$Fecha <- paste(gps.data.df$Fecha, gps.data.df$Hora) %>% as.POSIXct(format = "%d-%m-%Y %H:%M:%S", tz = "America/Santiago")
+gps.data.df$`Duracion de la parada` <- str_match(gps.data.df$`Estatus movimiento`, "Duracion de la parada:\\s*(\\d+:\\d+:\\d+)")[,2] %>% str_replace_all(., " Hrs", "") %>% hms()
+gps.data.df$`Estatus movimiento`[grepl("Detenido.", gps.data.df$`Estatus movimiento`)] <- "Detenido."
+gps.data.df$`Estatus movimiento` <- gps.data.df$`Estatus movimiento` %>% as.factor()
+gps.data.df$`Estatus codigos` <- gps.data.df$`Estatus codigos` %>% as.factor()
+gps.data.df$`Estatus vehículo` <- gps.data.df$`Estatus vehículo` %>% as.factor()
+gps.data.df$`Tiempo parada/movimiento`[gps.data.df$`Tiempo parada/movimiento` == "--"] <- NA
+gps.data.df$`Tiempo parada/movimiento` <- gps.data.df$`Tiempo parada/movimiento` %>% str_replace_all(., " Hrs", "") %>% hms()
+gps.data.df$Dirección <- gps.data.df$Dirección %>% as.factor()
+gps.data.df$`Reporte valido gps` <- gps.data.df$`Reporte valido gps` %>% as.factor()
+gps.data.df$`Nivel de GSM` <- gps.data.df$`Nivel de GSM` %>% as.factor()
+gps.data.df$`Cargando bateria GPS` <- gps.data.df$`Cargando bateria GPS` %>% as.factor()
+gps.data.df$`Nivel de bateria GPS` <- gps.data.df$`Nivel de bateria GPS` %>% as.factor()
+gps.data.df$Orientación.Punto.Cardinal <- gps.data.df$Orientación.Punto.Cardinal %>% as.factor()
+gps.data.df %>% summary()
+```
+
+### Procesamiento y Normalización de Datos
+
+**Paso a paso**
+
+- Se leen los archivos de las carpetas
+- Se crean las columnas "Reporte valido gps", "Numero de satelites", "Nivel de GSM", "Cargando bateria GPS", "Nivel de bateria GPS" y "Voltaje bateria GPS" a partir de los valores de "Sensores:" separados por "\r\n"
+- Se crean las columnas "Orientación.Ángulo" y "Orientación.Punto.Cardinal" a partir de Orientación separados por " "
+- Se unen los datasets en uno
+- "IMEI" se convierte en factor
+- "Vehiculo" se convierte en factor
+- "Fecha" se convierte en la concatenación de "Fecha" y "Hora" y se convierte en POSIXct con formato "%d-%m-%Y %H:%M:%S"
+- Se crea la columna "Duracion de la parada" a partir de "Estatus movimiento"
+- "Estatus movimiento" se convierte en factor
+- "Estatus codigos" se convierte en factor
+- "Tiempo parada/movimiento" se convierte en factor
+- "Dirección" se convierte en factor
+- "Reporte valido gps" se convierte en factor
+- "Nivel de GSM" se convierte en factor
+- "Cargando bateria GPS" se convierte en factor
+- "Nivel de bateria GPS" se convierte en factor
+- "Orientación.Punto.Cardinal" se convierte en factor
+
+## Pistolas de velocidad
+
+```{r getData4, eval=FALSE, include=FALSE}
+speed.pistols <- list()
+base.folder <- "data/Pistolas de velocidad"
+folders <- base.folder %>% list.dirs(recursive = F) %>% basename()
+dates <- folders %>% str_replace_all(., setNames(
+  c(months, "-"),
+  c("enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre", " de ")
+)) %>% paste(., "2026", sep = "-") %>% dmy()
+names(dates) <- folders
+for(folder in folders){
+  files <- paste(base.folder, folder, sep = "/") %>% list.files(full.names = T)
+  for(file in files){
+    direction <- read_excel(file, range = "B2:B2", col_names = F)$...1 %>% str_replace_all(., "Sentido: ", "")
+    df <- read_excel(file, range = "B4:E1000") %>% as.data.frame()
+    colnames(df) <- c("Hora", paste("Pista", 1:3))
+    df <- df[df$Hora %>% str_to_lower() != "hora" & !(df$Hora %>% is.na()),]
+    df$Hora <- (df$Hora %>% as.numeric() * 86400) %>% as.POSIXct(origin = dates[[folder]], tz = "America/Santiago")
+    df$`Pista 1` <- df$`Pista 1` %>% as.numeric()
+    df$`Pista 2` <- df$`Pista 2` %>% as.numeric()
+    df$`Pista 3` <- df$`Pista 3` %>% as.numeric()
+    df$Sentido <- direction
+    speed.pistols[[file]] <- df
+  }
+}
+speed.pistols.df <- speed.pistols %>% bind_rows()
+speed.pistols.df$Sentido <- speed.pistols.df$Sentido %>% as.factor()
+speed.pistols.df %>% summary()
+```
+
+### Procesamiento y Normalización de Datos
+
+**Paso a paso**
+
+- Se leen los archivos de las carpetas
+- Por cada archivo, se crea la variable `direction` a partir de la celda B2 y se le quita el texto "Sentido: "
+- Los nombres de las columnas se establecen como "Hora", "Pista 1", "Pista 2" y "Pista 3" (en algunos archivos están con minúsculas)
+- Se descartan las filas en las que "Hora" tiene el valor de "Hora" o es nulo
+- Se crea la columna "Sentido" con el valor de `direction`
+- Se unen los datasets en uno
+- "Pista 1" se convierte en numeric
+- "Pista 2" se convierte en numeric
+- "Pista 3" se convierte en numeric
+
+## Registros de accidentes, carabineros
+
+```{r getData5, eval=FALSE, include=FALSE}
+police.type.accident <- read_excel("data/Registros de accidentes, carabineros/Registros por tipo de accidente carabineros diciembre 2025.xlsx") %>% as.data.frame()
+police.type.accident$FECHA <- paste(police.type.accident$FECHA, police.type.accident$HORA) %>% as.POSIXct(format = "%Y-%m-%d %H:%M", "America/Santiago")
+police.type.accident <- police.type.accident %>% select(-HORA)
+police.type.accident$ZONA <- police.type.accident$ZONA %>% as.factor()
+police.type.accident$COMUNA <- police.type.accident$COMUNA %>% as.factor()
+police.type.accident$TIPO <- police.type.accident$TIPO %>% as.factor()
+police.type.accident$SECTOR <- police.type.accident$SECTOR %>% as.factor()
+police.type.accident$KM <- police.type.accident$KM %>% as.numeric()
+police.type.accident$PARTE <- police.type.accident$PARTE %>% as.numeric()
+police.type.accident$TRIBUNAL <- police.type.accident$TRIBUNAL %>% as.factor()
+police.type.accident %>% summary()
+
+police.type.vehicle <- read_excel("data/Registros de accidentes, carabineros/Registros por tipo de vehiculo, carabineros, diciembre 2025.xlsx") %>% as.data.frame()
+police.type.vehicle$FECHA <- paste(police.type.vehicle$FECHA, police.type.vehicle$HORA) %>% as.POSIXct(format = "%Y-%m-%d %H:%M", "America/Santiago")
+police.type.vehicle <- police.type.vehicle %>% select(-HORA)
+police.type.vehicle$COMUNA <- police.type.vehicle$COMUNA %>% as.factor()
+police.type.vehicle$ZONA <- police.type.vehicle$ZONA %>% as.factor()
+police.type.vehicle$TIPO <- police.type.vehicle$TIPO %>% as.factor()
+police.type.vehicle$SERVICIO <- police.type.vehicle$SERVICIO %>% as.factor()
+police.type.vehicle <- police.type.vehicle %>%
+  left_join(police.type.accident %>% select(ID, TIPO.ACCIDENTE = TIPO, CAUSA, SECTOR, FALLECIDO, GRAVE, `M/GRAVE`, LEVE, ILESO, CALLE_1, CALLE_2, KM, PARTE, TRIBUNAL), by = "ID")
+police.type.vehicle %>% summary()
+```
+
+### Procesamiento y Normalización de Datos
+
+**Paso a paso**
+
+- Se lee el archivo "Registros por tipo de accidente carabineros diciembre 2025.xlsx"
+- "FECHA" se convierte en la concatenación de "FECHA" y "HORA" y se convierte en POSIXct con formato "%Y-%m-%d %H:%M"
+- "ZONA" se convierte en factor
+- "COMUNA" se convierte en factor
+- "TIPO" se convierte en factor
+- "SECTOR" se convierte en factor
+- "KM" se convierte en numeric
+- "PARTE" se convierte en numeric
+- "TRIBUNAL" se convierte en factor
+- Se lee el archivo "Registros por tipo de vehiculo, carabineros, diciembre 2025.xlsx"
+- "FECHA" se convierte en la concatenación de "FECHA" y "HORA" y se convierte en POSIXct con formato "%Y-%m-%d %H:%M"
+- "COMUNA" se convierte en factor
+- "ZONA" se convierte en factor
+- "TIPO" se convierte en factor
+- "SERVICIO" se convierte en factor
+- Se le añaden las columnas "TIPO.ACCIDENTE" (originalmente "TIPO"), "CAUSA", "SECTOR", "FALLECIDO", "GRAVE", "M/GRAVE", "LEVE", "ILESO", "CALLE_1", "CALLE_2", "KM", "PARTE" y "TRIBUNAL" a partir de "Registros por tipo de accidente carabineros diciembre 2025.xlsx" en donde los valores de "ID" son iguales en ambas tablas
+
+# Base de Datos
+
+```{sql creation eval=FALSE}
+
+```
