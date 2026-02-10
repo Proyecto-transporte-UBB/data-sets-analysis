@@ -264,7 +264,7 @@ Donde:
 - $\sigma_K$: Desviación standard de $K$
 - $n \in \mathbb{R}$: Número de desviaciones standard que definen el límite (valor por defecto: $n = 2$)
 
-**Características:**
+**Características**:
 - Adecuado para distribuciones aproximadamente normales
 - Sensible a la presencia de outliers en el cálculo de la media y desviación standard
 - El parámetro $n$ controla la sensibilidad del método
@@ -283,7 +283,7 @@ Donde:
 - $\text{IQR}(K) = Q_3(K) - Q_1(K)$: Rango intercuartílico
 - $n \in \mathbb{R}$: Multiplicador del IQR (valor por defecto: $n = 1.5$)
 
-**Ventajas:**
+**Ventajas**:
 - Robusto ante la presencia de valores atípicos
 - No asume normalidad en la distribución
 - Ampliamente utilizado en diagramas de caja (*boxplots*)
@@ -4657,20 +4657,22 @@ stat.mode <- function(x){
 middle.value <- function(X) X %>% range(na.rm = T) %>% mean(na.rm = T)
 
 quantum.data <- function(
-  time.data = c(),
-  lng.data = c(),
-  lat.data = c(),
-  field.data = c(),
-  names.data = c(),
-  speed.data = c(),
-  minX = c(),
-  maxX = c(),
-  minY = c(),
-  maxY = c(),
+  time.data = NA,
+  lng.data = NA,
+  lat.data = NA,
+  field.data = NA,
+  names.data = NA,
+  speed.data = NA,
+  length.data = NA,
+  minX = NA,
+  maxX = NA,
+  minY = NA,
+  maxY = NA,
   time.gap = 5,
   space.gap = 50,
   street.aligned = T,
-  street.angle.tolerance = 30
+  street.angle.tolerance = 30,
+  compile.function = function(X, W) X %>% weighted.mean(w = W)
 ) {
   dt <- data.table(
     time = time.data,
@@ -4679,10 +4681,10 @@ quantum.data <- function(
     id = field.data,
     name = names.data,
     speed = speed.data,
-    minX = minX,
-    maxX = maxX,
-    minY = minY,
-    maxY = maxY
+    mX = minX,
+    MX = maxX,
+    mY = minY,
+    MY = maxY
   )
   first.date <- time.data %>% min()
   if (street.aligned) dt[, heading := calculate.street.heading(lng, lat)]
@@ -4690,559 +4692,172 @@ quantum.data <- function(
   rad.tolerance <- street.angle.tolerance * pi / 180
   y.gap.meters <- rad.tolerance %>% sin() * space.gap
   dt[, time.bin := time %>% cut(breaks = seq(time %>% min(), time %>% max() + time.gap, by = time.gap), include.lowest = T, labels = F) %>% as.integer()]
-  dt[, lat.m := meters.per.degree.lat * lat]
-  dt[, lng.m := lat %>% meters.per.degree.lng() * lng]
-  dt[, x.along := heading %>% cos() * lng.m + heading %>% sin() * lat.m]
-  dt[, y.across := -heading %>% sin() * lng.m + heading %>% cos() * lat.m]
   dt.expanded <- dt[, {
-    bx <- (x.along / space.gap) %>% floor()
+    cxm <- lat %>% meters.per.degree.lng() * lng
+    cym <- lat * meters.per.degree.lat
+    x.along <- heading %>% cos() * cxm + heading %>% sin() * cym
+    y.across <- -heading %>% sin() * cxm + heading %>% cos() * cym
+    dist.m <- ((lat %>% meters.per.degree.lng() * (MX - mX)) ^ 2 + (meters.per.degree.lat * (MY - mY)) ^ 2) %>% sqrt()
+    start.m <- x.along - dist.m / 2
+    end.m <- x.along + dist.m / 2
+    bins.idx <- ((start.m / space.gap) %>% floor()):((end.m / space.gap) %>% floor())
     by <- (y.across / y.gap.meters) %>% floor()
-    .(
-      time.bin = time.bin,
-      x.bin = bx,
-      y.bin = by,
-      minX.bin = bx * space.gap,
-      maxX.bin = (bx + 1) * space.gap,
-      minY.bin = by * y.gap.meters,
-      maxY.bin = (by + 1) * y.gap.meters,
-      speed = speed,
-      name = name,
-      lng = lng,
-      lat = lat,
-      heading = heading
-    )
+    bins.idx %>% lapply(., function(bx){
+      m.along.start <- bx * space.gap
+      m.along.end <- (bx + 1) * space.gap
+      m.across.min <- by * y.gap.meters
+      m.across.max <- (by + 1) * y.gap.meters
+      len <- max(0, min(end.m, m.along.end) - max(start.m, m.along.start))
+      inv.rot <- function(a, q){
+        x.glob <- heading %>% cos() * a - heading %>% sin() * q
+        y.glob <- heading %>% sin() * a + heading %>% cos() * q
+        return(
+          list(
+            x = x.glob,
+            y = y.glob
+          )
+        )
+      }
+      p1 <- inv.rot(m.along.start, m.across.min)
+      p2 <- inv.rot(m.along.end, m.across.min)
+      p3 <- inv.rot(m.along.end, m.across.max)
+      p4 <- inv.rot(m.along.start, m.across.max)
+      list(
+        time.bin = time.bin,
+        x.bin = bx,
+        y.bin = by,
+        minX = min(p1$x, p2$x, p3$x, p4$x) / lat %>% meters.per.degree.lng(),
+        maxX = max(p1$x, p2$x, p3$x, p4$x) / lat %>% meters.per.degree.lng(),
+        minY = min(p1$y, p2$y, p3$y, p4$y) / meters.per.degree.lat,
+        maxY = max(p1$y, p2$y, p3$y, p4$y) / meters.per.degree.lat,
+        speed = speed,
+        len = len,
+        name = name,
+        heading = heading,
+        lng = (heading %>% cos() * (m.along.start + m.along.end) / 2 - heading %>% sin() * (m.across.min + m.across.max) / 2) / lat %>% meters.per.degree.lng(),
+        lat = (heading %>% sin() * (m.along.start + m.along.end) / 2 + heading %>% cos() * (m.across.min + m.across.max) / 2) / meters.per.degree.lat
+      )
+    }) %>% rbindlist()
   }, by = 1:(dt %>% nrow())]
   result <- dt.expanded[, {
     list(
-      time = (time.bin * time.gap + first.date) %>% middle.value(),
-      lng = lng %>% middle.value(),
-      lat = lat %>% middle.value(),
-      minX = minX.bin[1],
-      maxX = maxX.bin[1],
-      minY = minY.bin[1],
-      maxY = maxY.bin[1],
-      field = speed %>% mean(),
+      time = time.bin[1] * time.gap + first.date,
+      lng = (minX[1] + maxX[1]) / 2,
+      lat = (minY[1] + maxY[1]) / 2,
+      minX = minX[1],
+      maxX = maxX[1],
+      minY = minY[1],
+      maxY = maxY[1],
+      field = speed %>% compile.function(W = len),
       summarised = name[1],
       n.points = .N,
-      street.heading = heading %>% median(na.rm = T),
-      street.heading.from.north = 90 - heading %>% median(na.rm = T) * 180 / pi + ifelse(heading %>% median(na.rm = T) > pi / 2, 360, 0)
+      street.heading = heading %>% first(),
+      street.heading.from.north = 90 - heading %>% first() * 180 / pi + ifelse(heading %>% first() > pi / 2, 360, 0)
     )
   }, by = .(time.bin, x.bin, y.bin)]
   return(result[order(time.bin, x.bin)])
 }
 ```
 
-[Ver Diagrama de Flujo](https://mermaid.live/edit#pako:eNptVFFu2zgQvQpBIEALKFrbUWJHQFtk3TbNzyJI0p_aQTGhxgqxFKmSVFFvkMPsAfZrD7DA5mI7JGVb9tYftjSeeW_emyGfuDAV8pLXFtpHdvd-qRl9bj1Y_2pxpaWQpmTfOtC-a_IKPNy_ZsfHb9k1WGjc4gaFfJCWtWBf_mzQW-NK5mWDGVO6pi_wGVtJVFUWw3kNbcZcC2Lz6C2iz0HJWiMlCdO0UmG-6rTw0uj71FD6TqSR_47AfpV6MQclOgU2oT9IXbKVMia9s1-2pHs4fXEEunIXifvp33_2m2Fv3rC7m88f3j0Pa4-O2A00wKhKI1TAgFEPCl36ewtH4Oz25a_I8YkSpa53zVbSohDy5W_NKmQi1G-SWOdAV4ZSVmhRCwmOCdTeAnGwNaMR6EmvZlMSOOZGf_8IwhvrdjyrGKC6wEIJaF0kTZOi1mnsVRjZ_CtNitDpV9c9-gAxMtyGqe15TnY7hmGaMnbXWrNG4QMkQ32gUkEvdM1IjHahGVA91wY7El1a07W9jYuL2na0Xaw1uxlngfmrMrqWviMHQBFoCP0feH9ov5nt3H4yLvp3qPNWNq3CA7VRiA-0RLnpICn1xh2oSQg7TT3izyURbF6HrACs6_R8qIJm4oySFURbU3hoV-S6qGuLNXhiapUUxHR4qhg5JqBpTdBDp5rmFZoRYZ9Dc-Z-AD1QsUUetrUNJvc8-MEG0ko0WEkTnfMSiTPbOJjtDFyH9fQY-2k7HRrSeWuk9m7PgogeeW7Qdcov5hbDeaJTka_ockC6bMI6GFuhpj3sPQ60PU6qixAfdPVq8VHq-9fL3krXPaSLcMmvrRHooJF09gy7RFPTDbeSwix5yh0cwF1gcGZ2wc06pAjqimd038qKl952mPEGbQPhlT-FlCX3j9jgkpf0WIH9PTA-U00L-osxzaaMZlM_8nIFytFb15IJ-F4CCWi2UbpBKrRzQ5bycnJ-EkF4-cR_8HJ8Os2Ls6I4nRVnk8lsNp1mfM3L46I4z0cn5yeTs8l4dDYeFafPGf8jEk_y8_FoWsyK2Xh6Oipms5Pn_wDIyRlm)
+[Ver Diagrama de Flujo](https://mermaid.live/edit#pako:eNqFVV1PIzcU_SuWpdWCFAYICYRRSMVCd1upuyCSvuyEB8_4ZmLqsae2ByWL-DF97EOf-hP4Y722Z5JAt-o8gD-uz7k-9_jmiRaaA01paVi9JLPruSL4TR0zbi_7WYlC6JT83jDlmirhzLH7fXJwMCG45bIrA8wQv5o4lksghVZ-qi3hQEA5wzi7j5Dx77t35BocmEooVoiXv5UPvDECY-M8hnn0SGMvpSgV8CfrDIBLWJySiwsy--G5je6C8AiZvvwVTn4C9xMwLlSZ_SJZhXkWTBaNZA6SFmsZ98e5OZyMxeRXy8hNDWoadj-zmtTMMIKMyl_T300yjyJhfCgm998h_6ID91cwuiOfgiMtEbkgR2_VuNJqIcrGbNX4IJSN29srBNQYml3FaxiC4iZOSzBMFUDWZJ2UrE4qL69taXYS2YGIe3EclmeiAqRt6-lwluRCkZxZxjXWMS4h-tvsf1zVTNmQ-ZrMMBG70KZq77J39fKHT1WTWnv1OSM6t2Ae4_5-RGm5Qx4tnFbZnI7zyQ466nIdfLXHXQJ-nQPfHx_mkzl9lZRt8mjlOb01ugDLKm-umMNtg6M5jZH-48JA4ZCQzD5sVzdphKQQ5iEGZThc4zCYQRsOCu9kyafbKWEEdTe6091_23MB5k47FkD8IAiQkk0pV-hrjTXyRWQF4tjOlJet--ABbGfBkPXGL9_xpP86vkDuPZVtHp4hWF1LwNaYCJMInK96JF8HzqLJBRgvtVcMJNbsAZzeQfZgbQ94RJbsY6NiMkI9Jka7nXs9vvxpnMAqkPr4oB4EArTTrnql1LnPYYcg4gaKm0cwktVb03uZhGs4eS9Bvcf7S2KhrHyJAzr3XUd7XYLh8KItMCj-xryXpYFyt-u0ZLF9GN3U_v1iVIN9IKjRvYweFiz8Wydbgn_5Dx-Y1VLw7jncgW2k2_9__3Xc7ZOtaq9wdllLUQTrVbWQkCxw0R_tnIJ-q4AL73R8HMa_XJ9z0OmNNzrMSICKgfECb1UugoqC-7aS60aFBpLrVStx8BzITW8PmBuYgPpFG7fseuAG93XjTRaYcqJ85H8Wacq8gnG6ixlIPqKZ5RRXs5vgp9dVwtxXO_XZBMdWo_hehkspuUN3G_X6d8xgqSrkvd-nPfxpFJymzjTQoxW-IOan9MmjzqlbQgVzmuKQM_ObL-4znsEG8lXrqjuGBS2XNF0waXHW1EgF14KhU7Yh4Kt2hWI7mo5G_YBB0ye6ounx6DQZ9s_Pz4_OhoPT0_PBqEfXND04Oz5Ozkf94eDspN8_weXnHv0WaE-S0Wg0OOofnw2PhoP-ybD__A-oeqIJ)
 
 ```{mermaid}
 graph TD
-    Start([Inicio: quantum.data]) --> Params[Recibir parámetros: time, lng, lat, field, time.gap, space.gap, street.aligned, compile.function]
+    Start([Inicio: quantum.data]) --> Init[Crear data.table con datos de entrada]
     
-    Params --> TimeBin[Calcular time.bin: floor time / time.gap]
+    %% Determinación de Orientación
+    Init --> IsAligned{street.aligned == T?}
+    IsAligned -- Sí --> GetHeading[Llamar calculate.street.heading<br/><i>Usa OpenStreetMap para alinear con la calle</i>]
+    IsAligned -- No --> ZeroHeading[Set heading = 0]
     
-    TimeBin --> IsAligned{¿street.aligned == TRUE?}
+    %% Configuración de Bins
+    GetHeading --> Config[Calcular rad.tolerance y y.gap.meters]
+    ZeroHeading --> Config
+    Config --> TimeBin[Crear time.bin basado en time.gap]
     
-    %% Rama Alineada a Calles
-    IsAligned -- Sí --> Heading[Calcular dirección de calle Heading usando diferencias centrales y atan2]
-    Heading --> ConvFactors[Calcular factores de conversión metros a grados: C_lat y C_lng]
-    ConvFactors --> SpaceBin[Calcular bins espaciales proyectados en dirección de la calle y transversal]
-    SpaceBin --> GroupAligned[Agrupar por time.bin, bin_longitudinal y bin_transversal]
+    %% Expansión y Transformación (Cálculo por cada observación)
+    TimeBin --> Expansion["<b>Expansión de Datos (dt.expanded)</b>"]
     
-    %% Rama No Alineada
-    IsAligned -- No --> SpaceBinSimple[Calcular bins de latitud y longitud directos]
-    SpaceBinSimple --> GroupSimple[Agrupar por time.bin, lat.group y lng.group]
-    
-    %% Consolidación
-    GroupAligned --> Aggregate[Aplicar compile.function al campo de datos por cada grupo]
-    GroupSimple --> Aggregate
-    
-    Aggregate --> Stats[Calcular promedios de tiempo, latitud, longitud y conteo de puntos n.points]
-    
-    Stats --> Result[Crear data.frame final ordenado por tiempo]
-    Result --> End([Fin])
-
-    subgraph "Procesamiento Geográfico"
-        Heading
-        ConvFactors
-        SpaceBin
+    subgraph "Procesamiento por Punto"
+        direction TB
+        Expansion --> Projection[Proyectar coordenadas GPS a metros]
+        Projection --> Rotation[Rotación: Calcular x.along y y.across<br/><i>Alinear ejes con la dirección de la calle</i>]
+        Rotation --> Bins[Determinar bins espaciales bx, by<br/>cubiertos por el objeto]
+        Bins --> InvRot[Función inv.rot: Calcular vértices p1-p4<br/>en coordenadas globales]
+        InvRot --> Overlap[Calcular longitud 'len' del segmento<br/>dentro de cada bin]
     end
+    
+    %% Agregación
+    Overlap --> Grouping[Agrupar por time.bin, x.bin, y.bin]
+    
+    subgraph "Consolidación (Result)"
+        direction TB
+        Grouping --> CompFunc[Aplicar compile.function<br/><i>Promedio ponderado por 'len'</i>]
+        CompFunc --> CenterCalc[Calcular centroide y bounding box<br/>de la celda]
+        CenterCalc --> NorthHeading[Calcular street.heading.from.north]
+    end
+    
+    %% Salida
+    NorthHeading --> FinalSort[Ordenar por time.bin y x.bin]
+    FinalSort --> End([Fin: Retornar data.table resumida])
 ```
 
+El proceso de discretización busca transformar un conjunto de observaciones heterogéneas y continuas en una estructura de rejilla regular (teselado) espaciotemporal. Esto permite homogeneizar la información de tráfico para su análisis estadístico.
 
 ## Descripción Matemática
 
-La función implementa un proceso de cuantización vectorial adaptativa para datos espacio-temporales, donde la discretización espacial se alinea con la dirección de las calles. Formalmente:
+Sea una observación $i$ definida por la tupla $(t_i, \lambda_i, \phi_i, v_i, \mathbf{B}_i)$, donde $t$ es el tiempo, $(\lambda, \phi)$ las coordenadas geográficas, $v$ la variable escalar de interés (ej. velocidad) y $\mathbf{B}$ el recuadro delimitador (bounding box) del evento.
 
-$$quantum.data: \mathbb{R}^{4\times n}\times\mathbb{R}^2\times(\mathcal{P}(\mathbb{R})\to\mathbb{R})\to\mathbb{R}^{6\times m}$$
+### 1. Transformación de Coordenadas
 
-Donde:
+Primero, se proyectan las coordenadas esféricas $(\lambda, \phi)$ a un plano euclidiano local $(x, y)$ en metros, utilizando el radio de curvatura terrestre según la latitud:
 
-- **Dominio**: 4 vectores de dimensión $n$ (tiempo, longitud, latitud y campo), parámetros de discretización y función de agregación
-- **Codominio**: Matriz de datos discretizados con 6 atributos y $m \leq n$ puntos
+$$
+x = \lambda \cdot R \cdot \cos(\phi), \quad y = \phi \cdot R
+$$
+
+Donde $R$ es la constante de conversión de grados a metros en el ecuador.
+
+### 2. Rotación al Eje de la Vía (Alineación)
+
+Para cada observación, se identifica el ángulo de orientación de la calle más cercana $\theta$. Se aplica una transformación lineal de rotación para obtener un sistema de coordenadas $(u, v)$ donde el eje $u$ es paralelo a la dirección de la vía y el eje $v$ es perpendicular a ella:
+
+$$
+\begin{pmatrix} u \\ v \end{pmatrix} = \begin{pmatrix} \cos\theta & \sin\theta \\ -\sin\theta & \cos\theta \end{pmatrix} \begin{pmatrix} x \\ y \end{pmatrix}
+$$
+
+### 3. Función de Discretización (Binning)
+
+El espacio-tiempo se particiona en celdas uniformes. Una observación pertenece a una celda $C_{j,k,l}$ si:
+
+- **Temporalmente**: $j = \lfloor \frac{t}{\Delta t} \rfloor$
+- **Longitudinalmente (en la vía)**: $k = \lfloor \frac{u}{\Delta s} \rfloor$
+- **Transversalmente**: $l = \lfloor \frac{v}{\Delta y} \rfloor$, donde $\Delta y$ es una tolerancia lateral derivada del ángulo de la vía.
 
 ## Parámetros de Entrada
 
-- $\text{time.data} \in \mathbb{R}^n$: Vector de tiempos en segundos
-- $\text{lng.data} \in \mathbb{R}^n$: Vector de longitudes en grados decimales
-- $\text{lat.data} \in \mathbb{R}^n$: Vector de latitudes en grados decimales
-- $\text{field.data} \in \mathbb{R}^n$: Vector de valores del campo de interés
-- $\text{time.gap} \in \mathbb{R}^+$: Intervalo temporal de discretización en segundos
-- $\text{space.gap} \in \mathbb{R}^+$: Intervalo espacial a lo largo de la calle en metros
-- $\text{street.aligned} = \text{TRUE}$: Activa discretización alineada a calles
-- $\text{street.angle.tolerance} = 30$: Tolerancia angular para agrupación transversal en grados
-- $\text{compile.function}: \mathcal{P}(\mathbb{R}) \to \mathbb{R}$: Función de agregación (media, mediana, moda, máximo, mínimo, etc.)
+El algoritmo requiere la definición de los siguientes parámetros físicos y geométricos:
+
+- $\Delta t$ **(Time Gap)**: Resolución temporal del análisis (ej. 5 segundos). Determina el tamaño del intervalo en el que se agrupan los eventos cronológicamente.
+- $\Delta s$ **(Space Gap)**: Resolución espacial longitudinal (ej. 50 metros). Define la longitud de los segmentos en los que se divide la vía.
+- $\theta_{tol}$ **(Angle Tolerance)**: Tolerancia angular para la alineación. Define el margen de error aceptable para considerar que una observación pertenece al flujo de la calle analizada.
+- **Función de Agregación** ($f$): Operador matemático para consolidar múltiples valores en una celda. Por defecto, se utiliza la media ponderada por longitud:
+
+$$
+\bar{V}_{celda} = \frac{\sum (v_i \cdot L_i)}{\sum L_i}
+$$
+
+donde $L_i$ es la fracción del objeto que intersecta la celda espacial.
 
 ## Proceso de Discretización
 
-### 1. Constantes de Conversión Geográfica
-
-Para convertir coordenadas geográficas a distancias métricas:
-
-$$C_{lat}\equiv 111320 m/°$$
-
-$$C_{lng}(\phi)\equiv C_{lat} \times \cos\left(\phi \times \frac{\pi}{180}\right)$$
-
-Donde $\phi$ es la latitud en grados.
-
-### 2. Cálculo de la Dirección de la Calle (Heading)
-
-Para cada punto $P_i = (t_i, \lambda_i, \phi_i, v_i)$ donde:
-
-- $t_i$: tiempo
-- $\lambda_i$: longitud
-- $\phi_i$: latitud
-- $v_i$: valor del campo
-
-Calculamos el ángulo de dirección $\theta_i$ usando diferencias centrales:
-
-$$\Delta x_i^m = (\lambda_{i+1} - \lambda_{i-1}) \times C_{lng}(\phi_i)$$
-
-$$\Delta y_i^m = (\phi_{i+1} - \phi_{i-1}) \times C_{lat}$$
-
-$$\theta_i = \text{atan2}(\Delta y_i^m, \Delta x_i^m)$$
-
-Donde $\text{atan2}(y, x)$ es la función arcotangente de dos argumentos que devuelve el ángulo en radianes entre el eje X positivo y el vector $(x, y)$.
-
-### 3. Transformación al Sistema de Coordenadas de la Calle
-
-Para cada punto $P_i = (\lambda_i, \phi_i, \theta_i)$, donde:
-
-- $\lambda_i$: longitud en grados
-- $\phi_i$: latitud en grados
-- $\theta_i$: ángulo de dirección de la calle en radianes (calculado en el paso anterior)
-
-Realizamos una transformación de coordenadas afín que alinea el sistema de referencia local con la dirección de la calle:
-
-**3.1 Conversión a Coordenadas Métricas Cartesianas**
-
-Primero, convertimos las coordenadas geográficas a un sistema métrico local:
-
-$$x_i^G = \lambda_i \times C_{lng}(\phi_i)$$
-$$y_i^G = \phi_i \times C_{lat}$$
-
-Donde:
-
-- $x_i^G$: coordenada este-oeste en metros
-- $y_i^G$: coordenada norte-sur en metros
-- $C_{lng}(\phi_i) = 111320 \times \cos(\phi_i \times \frac{\pi}{180})$: metros por grado de longitud a latitud $\phi_i$
-- $C_{lat} = 111320$: metros por grado de latitud
-
-**3.2 Construcción del Sistema de Coordenadas Local**
-
-Definimos una base ortonormal $\mathcal{B}i = {\vec{e}{\parallel}, \vec{e}_{\perp}}$ donde:
-
-- $\vec{e}_{\parallel} = (\cos\theta_i, \sin\theta_i)$: vector unitario paralelo a la calle
-- $\vec{e}_{\perp} = (-\sin\theta_i, \cos\theta_i)$: vector unitario perpendicular a la calle
-
-Esta base satisface:
-
-- $|\vec{e}{\parallel}| = |\vec{e}{\perp}| = 1$
-- $\vec{e}{\parallel} \cdot \vec{e}{\perp} = 0$ (ortogonalidad)
-- $\det(\vec{e}{\parallel}, \vec{e}{\perp}) = 1$ (orientación positiva)
-
-**3.3 Transformación de Coordenadas**
-
-La transformación del sistema global de coordenadas geográficas al sistema local alineado con la calle se realiza mediante una rotación ortogonal que depende del ángulo de dirección $\theta_i$.
-
-*Definición Formal*
-
-Dado un punto $P_i$ con:
-
-- Coordenadas geográficas originales: $(\lambda_i, \phi_i)$ en grados
-- Coordenadas métricas globales: $(x_i^G, y_i^G)$ en metros
-- Ángulo de dirección de la calle: $\theta_i$ en radianes
-
-La transformación al sistema local es:
-
-$$
-\begin{bmatrix}
-x_i' \\
-y_i'
-\end{bmatrix} = R(\theta_i)^\top \cdot 
-\begin{bmatrix}
-x_i^G \\
-y_i^G
-\end{bmatrix}
-$$
-
-donde $R(\theta_i)$ es la matriz de rotación:
-
-$$
-R(\theta_i) = \begin{bmatrix} 
-\cos\theta_i & \sin\theta_i \\ 
--\sin\theta_i & \cos\theta_i 
-\end{bmatrix}
-$$
-
-y por lo tanto:
-
-$$
-R(\theta_i)^\top = R(-\theta_i) = \begin{bmatrix} \cos\theta_i & \sin\theta_i \\ -\sin\theta_i & \cos\theta_i \end{bmatrix}
-$$
-
-*Desarrollo Paso a Paso*
-
-1. Vector de posición en sistema global:
-  $$
-  \mathbf{r}_i^G = \begin{bmatrix} x_i^G \\ y_i^G \end{bmatrix}
-  $$
-2. Bases de los sistemas de coordenadas:
-  Sistema global $\mathcal{G}$:
-  $$
-  \begin{bmatrix}
-  \mathcal{G} = \left\{ \vec{e}_x^G = \begin{bmatrix} 1 \\ 0 \end{bmatrix}, \ \vec{e}_y^G = \begin{bmatrix} 0 \\ 1 \end{bmatrix} \right\}
-  \end{bmatrix}
-  $$
-  Sistema local $\mathcal{L}_i$:
-  $$
-  \mathcal{L}_i = \left\{ 
-  \vec{e}_{\parallel} = \begin{bmatrix} \cos\theta_i \\ \sin\theta_i \end{bmatrix}, 
-  \quad 
-  \vec{e}_{\perp} = \begin{bmatrix} -\sin\theta_i \\ \cos\theta_i \end{bmatrix} 
-  \right\}
-  $$
-3. Cambio de base:
-  Las coordenadas $(x_i', y_i')$ en el sistema local satisfacen:
-  $$
-  \vec{r}_i^G = x_i' \vec{e}_{\parallel} + y_i' \vec{e}_{\perp}
-  $$
-  En forma matricial:
-  $$
-  \begin{bmatrix}
-  x_i^G \\
-  y_i^G
-  \end{bmatrix} =
-  \begin{bmatrix}
-  \cos\theta_i & -\sin\theta_i \\
-  \sin\theta_i & \cos\theta_i
-  \end{bmatrix}
-  \begin{bmatrix}
-  x_i' \\
-  y_i'
-  \end{bmatrix}
-  $$
-4. Solución para coordenadas locales:
-  Despejando $(x_i', y_i')$:
-  $$
-  \begin{bmatrix}
-  x_i' \\
-  y_i'
-  \end{bmatrix}
-  =
-  \begin{bmatrix}
-  \cos\theta_i & -\sin\theta_i \\
-  \sin\theta_i & \cos\theta_i
-  \end{bmatrix}
-  \begin{bmatrix}
-  x_i^G \\
-  y_i^G
-  \end{bmatrix}
-  $$
-
-*Interpretación Geométrica*
-
-1. Sistema global:
-  - Eje X: dirección este (positivo hacia el este)
-  - Eje Y: dirección norte (positivo hacia el norte)
-2. Sistema local:
-  - Eje $x'$ (longitudinal): paralelo a la dirección de la calle $\theta_i$
-  - Eje $y'$ (transversal): perpendicular a la calle ($\theta_i + \frac{\pi}{2}$)
-3. Transformación como rotación activa vs. pasiva:
-  Esta transformación puede interpretarse de dos formas equivalentes:
-  a) Rotación pasiva del sistema de referencia: Rotamos los ejes de coordenadas en un ángulo $-\theta_i$, manteniendo fijo el vector $\vec{r}_i^G$.
-  b) Rotación activa del vector: Rotamos el vector $\vec{r}_i^G$ en un ángulo $\theta_i$ en sentido contrario a las agujas del reloj, manteniendo fijos los ejes.
-
-### 4. Discretización Temporal
-
-Sea $T = {t_1, t_2, \dots, t_n}$ el conjunto ordenado de tiempos, con $t_1 < t_2 < \dots < t_n$.
-
-**4.1 Construcción de Bins Temporales**
-
-Definimos el ancho de bin temporal como $\Delta t = \text{time.gap}$. Los límites temporales son:
-
-- $t_{\min} = \min(T)$
-- $t_{\max} = \max(T)$
-
-El número de bins temporales $N_t$ se calcula como:
-
-$$
-N_t = \left\lceil \frac{t_{\max} - t_{\min}}{\Delta t} \right\rceil + 1
-$$
-
-Los bins temporales son intervalos semiabiertos:
-
-$$
-B_t[k] = [t_{\min} + (k-1)\Delta t,\ t_{\min} + k\Delta t),\quad k = 1, 2, \dots, N_t-1
-$$
-
-El último bin es cerrado para incluir $t_{\max}$:
-
-$$
-B_t[N_t] = [t_{\min} + (N_t-1)\Delta t,\ t_{\max}]
-$$
-
-**4.2 Asignación de Puntos a Bins Temporales**
-
-Para cada tiempo $t_i$, determinamos su bin temporal:
-
-$$
-b_t(i) = \left\lfloor \frac{t_i - t_{\min}}{\Delta t} \right\rfloor + 1
-$$
-
-Con la restricción: $1 \leq b_t(i) \leq N_t$
-
-### 5. Discretización Espacial Orientada a Calles
-
-**5.1 Discretización Longitudinal (a lo largo de $x'$)**
-
-Sea $X' = \{x_1', x_2', \dots, x_n'\}$ el conjunto de coordenadas longitudinales transformadas.
-
-*Paso 1*: Determinación del rango:
-
-$$
-x_{\min}' = \min(X'), \quad x_{\max}' = \max(X')
-$$
-
-*Paso 2*: Construcción de bins longitudinales con ancho $\Delta s = \text{space.gap}$:
-
-$$
-N_x = \left\lceil \frac{x_{\max}' - x_{\min}'}{\Delta s} \right\rceil + 1
-$$
-
-Los bins longitudinales son:
-
-$$
-B_x[\ell] = [x_{\min}' + (\ell-1)\Delta s,\ x_{\min}' + \ell\Delta s),\quad \ell = 1, 2, \dots, N_x-1
-$$
-
-El último bin incluye el límite superior:
-
-$$
-B_x[N_x] = [x_{\min}' + (N_x-1)\Delta s,\ x_{\max}']
-$$
-
-*Paso 3*: Asignación de puntos a bins:
-
-$$
-b_x(i) = \left\lfloor \frac{x_i' - x_{\min}'}{\Delta s} \right\rfloor + 1
-$$
-
-**5.2 Discretización Transversal (a lo largo de $y'$)**
-
-*Paso 1*: Cálculo del ancho de bin transversal:
-
-$$
-\Delta s_y = \Delta s \times \sin\left(\alpha \times \frac{\pi}{180}\right)
-$$
-
-donde $\alpha = \text{street.angle.tolerance} = 30°$.
-
-Para $\alpha = 30°$:
-
-$$
-\sin(30°) = \frac{1}{2} \Rightarrow \Delta s_y = \frac{\Delta s}{2}
-$$
-
-**Interpretación**: Esta elección crea bins con relación de aspecto 2:1, lo que significa que los bins son el doble de largos que de anchos. Esto refleja la intuición de que la variación a lo largo de una calle es más importante que la variación transversal para análisis de tráfico.
-
-*Paso 2*: Determinación del rango transversal:
-
-$$
-y_{\min}' = \min(Y'), \quad y_{\max}' = \max(Y')
-$$
-
-donde $Y' = \{y_1', y_2', \dots, y_n'\}$ es el conjunto de coordenadas transversales transformadas.
-
-*Paso 3*: Construcción de bins transversales:
-
-$$
-N_y = \left\lceil \frac{y_{\max}' - y_{\min}'}{\Delta s_y} \right\rceil + 1
-$$
-
-Los bins transversales son:
-
-$$
-B_y[m] = [y_{\min}' + (m-1)\Delta s_y,\ y_{\min}' + m\Delta s_y),\quad m = 1, 2, \dots, N_y-1
-$$
-
-El último bin incluye el límite superior:
-
-$$
-B_y[N_y] = [y_{\min}' + (N_y-1)\Delta s_y,\ y_{\max}']
-$$
-
-*Paso 4*: Asignación de puntos a bins:
-
-$$
-b_y(i) = \left\lfloor \frac{y_i' - y_{\min}'}{\Delta s_y} \right\rfloor + 1
-$$
-
-### 6. Agregación por Celdas 3D
-
-**6.1 Definición de Celdas**
-
-Una **celda** $C_{k,\ell,m}$ se define como la intersección de:
-- Bin temporal $B_t[k]$
-- Bin longitudinal $B_x[\ell]$
-- Bin transversal $B_y[m]$
-
-Formalmente:
-
-$$
-C_{k,\ell,m} = \{i \in \{1,\dots,n\} : b_t(i) = k,\ b_x(i) = \ell,\ b_y(i) = m\}
-$$
-
-**6.2 Estadísticos por Celda**
-
-Para cada celda no vacía ($|C_{k,\ell,m}| > 0$):
-
-1. **Tiempo representativo** (promedio temporal):
-   $$
-   \bar{t}_{k,\ell,m} = \frac{1}{|C|} \sum_{i \in C} t_i
-   $$
-2. **Posición representativa** (centroide en coordenadas originales):
-   - Longitud promedio: $\bar{\lambda}_{k,\ell,m} = \frac{1}{|C|} \sum_{i \in C} \lambda_i$
-   - Latitud promedio: $\bar{\phi}_{k,\ell,m} = \frac{1}{|C|} \sum_{i \in C} \phi_i$
-3. **Valor del campo agregado**:
-
-$$
-   \bar{v}_{k,\ell,m} = \text{compile.function}(\{v_i : i \in C\})
-$$
-
-   Donde $\text{compile.function}$ puede ser:
-   - Media: $\frac{1}{|C|} \sum_{i \in C} v_i$
-   - Máximo: $\max\{v_i : i \in C\}$
-   - Mínimo: $\min\{v_i : i \in C\}$
-   - Suma: $\sum_{i \in C} v_i$
-4. **Número de puntos**:
-   $$
-   n_{k,\ell,m} = |C| = \text{cardinalidad de } C
-   $$
-5. **Dirección promedio de la calle** (promedio circular):
-   Para ángulos $\theta_i$, el promedio circular se calcula como:
-   
-   - Componente coseno: $C_{\theta} = \frac{1}{|C|} \sum_{i \in C} \cos\theta_i$
-   - Componente seno: $S_{\theta} = \frac{1}{|C|} \sum_{i \in C} \sin\theta_i$
-   - Dirección promedio: $\bar{\theta}_{k,\ell,m} = \text{atan2}(S_{\theta}, C_{\theta})$
-
-   **Nota**: Este método evita problemas en el promedio de ángulos cerca de $0°/360°$.
-
-**6.3 Propiedades de la Agregación**
-
-1. **Conservación de masa** (para funciones de suma):
-
-$$
-   \sum_{k,\ell,m} \bar{v}_{k,\ell,m} = \sum_{i=1}^n v_i
-$$
-2. **Monotonicidad**: Si $\text{compile.function}$ es monótona, el orden se preserva.
-3. **Idempotencia**: Si todos los puntos caen en la misma celda y $\text{compile.function} = \text{identidad}$, entonces $\bar{v} = v_i$ para todo $i$.
-
-### 7. Construcción de la Salida
-
-La función retorna un conjunto de $m$ puntos discretizados:
-
-$$
-D = \{(\bar{t}_j, \bar{\lambda}_j, \bar{\phi}_j, \bar{v}_j, n_j, \bar{\theta}_j)\}_{j=1}^m
-$$
-
-donde $j$ indexa las celdas no vacías ordenadas por:
-
-1. Tiempo $\bar{t}_j$ (creciente)
-2. Coordenada longitudinal transformada $x_j'$ (creciente)
-3. Coordenada transversal transformada $y_j'$ (creciente)
-
-**7.1 Transformación Inversa para Visualización**
-
-Para visualizar o analizar los resultados en coordenadas originales, cada punto discretizado representa una **celda rectangular** en el sistema de coordenadas de la calle:
-
-- Centro: $(\bar{\lambda}_j, \bar{\phi}_j)$
-- Dimensiones: $\Delta s$ (largo) × $\Delta s_y$ (ancho)
-- Orientación: $\bar{\theta}_j$
-
-Los vértices de la celda en coordenadas globales son:
-
-$$
-\begin{bmatrix}
-\lambda_{\text{vértice}} \\
-\phi_{\text{vértice}}
-\end{bmatrix} = 
-\begin{bmatrix}
-\bar{\lambda}_j \\
-\bar{\phi}_j
-\end{bmatrix} + \frac{1}{C_{lng}(\bar{\phi}_j)} R(\bar{\theta}_j) 
-\begin{bmatrix}
-\pm\frac{\Delta s}{2} \\
-\pm\frac{\Delta s_y}{2}
-\end{bmatrix}
-$$
-
-### 8. Propiedades Matemáticas Globales
-
-**8.1 Reducción Dimensional**
-
-El número de puntos de salida $m$ satisface:
-
-$$
-m \leq \min(n,\ N_t \times N_x \times N_y)
-$$
-
-En la práctica, típicamente:
-
-$$
-m \approx \frac{n}{\left\lfloor \frac{\Delta t}{\Delta t_{\text{original}}} \right\rfloor \times \left\lfloor \frac{\Delta s}{\Delta s_{\text{original}}} \right\rfloor}
-$$
-
-donde $\Delta t_{\text{original}}$ y $\Delta s_{\text{original}}$ son las resoluciones originales de los datos.
-
-**8.2 Error de Discretización**
-
-Definimos el **error de representación** para una celda $C$:
-$$
-\epsilon_C = \frac{1}{|C|} \sum_{i \in C} \|P_i - \bar{P}_C\|
-$$
-
-donde $P_i = (\lambda_i, \phi_i)$ y $\bar{P}_C = (\bar{\lambda}_C, \bar{\phi}_C)$.
-
-Bajo condiciones suaves:
-
-$$
-\mathbb{E}[\epsilon_C] \approx \frac{\Delta s}{2\sqrt{3}} \ \text{(longitudinal)} + \frac{\Delta s_y}{2\sqrt{3}} \ \text{(transversal)}
-$$
-
-**8.3 Conservación de Información**
-
-La transformación preserva:
-1. **Orden temporal**: Si $t_i < t_j$, entonces $\bar{t}_{C(i)} \leq \bar{t}_{C(j)}$
-2. **Vecindad espacial**: Puntos cercanos en la misma dirección se mantienen cercanos
-3. **Propiedades estadísticas**: Dependiendo de $\text{compile.function}$
-
-### 9. Ventajas sobre Discretización Cartesiana Tradicional
-
-1. **Adaptabilidad direccional**: Se ajusta a la geometría de la red vial
-2. **Mejor agrupación semántica**: Agrupa puntos que están en la misma calle
-3. **Reducción de error en curvas**: Menor distorsión en tramos curvos
-4. **Separación natural de direcciones**: Diferentes sentidos de circulación se discretizan por separado
-5. **Interpretabilidad física**: Las dimensiones de las celdas tienen significado físico (largo/ancho de calle)
+El flujo lógico para la transformación de los datos sigue estos pasos:
+
+1. **Enriquecimiento Geográfico**: Para cada punto, se consulta una base de datos cartográfica (OpenStreetMap) para obtener el vector director de la infraestructura vial más cercana.
+2. **Expansión de Objetos**: Si la observación representa un objeto con extensión física (no un punto puntual), el algoritmo proyecta su longitud sobre el eje de la vía. Si un objeto es más largo que el parámetro $\Delta s$, este se fragmenta matemáticamente para repartir su contribución entre múltiples celdas espaciales adyacentes.
+3. **Cálculo de Intersecciones**: Se calcula el peso $L$ (longitud de ocupación) para cada celda afectada. Esto garantiza que objetos grandes o que cruzan fronteras de celdas no sesguen el promedio.
+4. **Colapso Estadístico**: Se agrupan todas las contribuciones que caen en la misma terna de índices $(j, k, l)$ y se calcula la media ponderada de la variable objetivo.
+5. **Georeferenciación Inversa**: Los centroides de las celdas discretas en el plano $(u, v)$ se transforman de vuelta a coordenadas $(\lambda, \phi)$ para permitir su visualización en mapas y sistemas de información geográfica (SIG).
 
 ## Ejemplo
 
@@ -5255,6 +4870,7 @@ degrees.format <- function(deg, sec.decimals = 3) {
   return(paste0(degrees, "°", sprintf("%02d", minutes), "'", sprintf(paste0("%0", 2 + sec.decimals + ifelse(sec.decimals > 0, 1, 0), ifelse(sec.decimals > 0, paste0(".", sec.decimals, "f"), "d")), seconds), "''"))
 }
 filtered.waze.routes <- waze.routes[waze.routes$updateTime >= "2026-01-16" %>% as.POSIXct(tz = "UTC") & waze.routes$updateTime <= "2026-01-18" %>% as.POSIXct(tz = "UTC"),]
+filtered.waze.routes.polygons <- filtered.waze.routes %>% create.bbox.polygons()
 sg <- 100
 tg <- 1800
 start.sys <- Sys.time()
@@ -5262,7 +4878,8 @@ discretization.example <- quantum.data(
   time.data = filtered.waze.routes$updateTime,
   lng.data = (filtered.waze.routes$minX + filtered.waze.routes$maxX) / 2,
   lat.data = (filtered.waze.routes$minY + filtered.waze.routes$maxY) / 2,
-  field.data = filtered.waze.routes$id,names.data = filtered.waze.routes$name,
+  field.data = filtered.waze.routes$id,
+  #names.data = filtered.waze.routes$name,
   speed.data = filtered.waze.routes$speed,
   minX = filtered.waze.routes$minX,
   maxX = filtered.waze.routes$maxX,
@@ -5287,33 +4904,6 @@ plot.data <- discretization.example %>%
   mutate(
     time = time %>% as.POSIXct(tz = "UTC")
   )
-
-rectangle <- function(lng, lat, angle, dx, dy){
-  corners.x <- c(-1, -1, 1, 1, -1) * dx / 2
-  corners.y <- c(1, -1, -1, 1, 1) * dy / 2
-  rot.x <- angle %>% cos() * corners.x - angle %>% sin() * corners.y
-  rot.y <- angle %>% sin() * corners.x + angle %>% cos() * corners.y
-  final.lng <- lng + rot.x / lat %>% meters.per.degree.lng()
-  final.lat <- lat + rot.y / meters.per.degree.lat
-  return(cbind(final.lng, final.lat))
-}
-
-abs.rectangle <- function(minX, minY, maxX, maxY, angle, center.lat) {
-  corners.x <- c(minX, maxX, maxX, minX, minX)
-  corners.y <- c(minY, minY, maxY, maxY, minY)
-  final.lng.m <- angle %>% cos() * corners.x - angle %>% sin() * corners.y
-  final.lat.m <- angle %>% sin() * corners.x + angle %>% cos() * corners.y
-  final.lng <- final.lng.m / center.lat %>% meters.per.degree.lng()
-  final.lat <- final.lat.m / meters.per.degree.lat
-  return(cbind(corners.x, corners.y))
-}
-
-pal <- colorNumeric(
-  palette = c("blue", "green", "yellow", "red"),
-  domain = plot.data$field
-)
-
-sd <- plot.data %>% SharedData$new()
 
 ui <- fluidPage(
   titlePanel("Mapa con Filtro de Tiempo"),
@@ -5345,24 +4935,48 @@ ui <- fluidPage(
   )
 )
 
-rect.polys <- 1:(plot.data %>% nrow()) %>% lapply(., function(i){
-  d <- plot.data[i,]
-  if(d$street.heading %>% is.na() || d$lng %>% is.na()) return(st_polygon())
-  coords <- rectangle(d$lng, d$lat, d$street.heading, sg, 5)
-  coords %>% list() %>% st_polygon() %>% return()
-})
-
-abs.rect.polys <- 1:(plot.data %>% nrow()) %>% lapply(., function(i){
-  d <- plot.data[i,]
-  if(d$lng %>% is.na()) return(st_polygon())
-  abs.coords <- abs.rectangle(d$minX, d$minY, d$maxX, d$maxY, d$street.heading, d$lat)
-  abs.coords %>% list() %>% st_polygon() %>% return()
-})
-
-plot.data.sf <- plot.data %>% st_sf(geometry = rect.polys %>% st_sfc(crs = 4326))
-abs.plot.data.sf <- plot.data %>% st_sf(geometry = abs.rect.polys %>% st_sfc(crs = 4326))
-
 server <- function(input, output, options){
+  rectangle <- function(lng, lat, angle, dx, dy){
+    corners.x <- c(-1, -1, 1, 1, -1) * dx / 2
+    corners.y <- c(1, -1, -1, 1, 1) * dy / 2
+    rot.x <- angle %>% cos() * corners.x - angle %>% sin() * corners.y
+    rot.y <- angle %>% sin() * corners.x + angle %>% cos() * corners.y
+    final.lng <- lng + rot.x / lat %>% meters.per.degree.lng()
+    final.lat <- lat + rot.y / meters.per.degree.lat
+    return(cbind(final.lng, final.lat))
+  }
+  abs.rectangle <- function(minX, minY, maxX, maxY, angle, center.lat) {
+    corners.x <- c(minX, maxX, maxX, minX, minX)
+    corners.y <- c(minY, minY, maxY, maxY, minY)
+    final.lng.m <- angle %>% cos() * corners.x - angle %>% sin() * corners.y
+    final.lat.m <- angle %>% sin() * corners.x + angle %>% cos() * corners.y
+    final.lng <- final.lng.m / center.lat %>% meters.per.degree.lng()
+    final.lat <- final.lat.m / meters.per.degree.lat
+    return(cbind(corners.x, corners.y))
+  }
+  pal <- colorNumeric(
+    palette = c("blue", "green", "yellow", "red"),
+    domain = plot.data$field
+  )
+  pal.dir <- colorNumeric(
+    palette = c("#F00", "#FF0", "#0F0", "#0FF", "#00F", "#F0F"),
+    domain = c(0, 360)
+  )
+  sd <- plot.data %>% SharedData$new()
+  rect.polys <- 1:(plot.data %>% nrow()) %>% lapply(., function(i){
+    d <- plot.data[i,]
+    if(d$street.heading %>% is.na() || d$lng %>% is.na()) return(st_polygon())
+    coords <- rectangle(d$lng, d$lat, d$street.heading, sg, 5)
+    coords %>% list() %>% st_polygon() %>% return()
+  })
+  abs.rect.polys <- 1:(plot.data %>% nrow()) %>% lapply(., function(i){
+    d <- plot.data[i,]
+    if(d$lng %>% is.na()) return(st_polygon())
+    abs.coords <- abs.rectangle(d$minX, d$minY, d$maxX, d$maxY, d$street.heading, d$lat)
+    abs.coords %>% list() %>% st_polygon() %>% return()
+  })
+  plot.data.sf <- plot.data %>% st_sf(geometry = rect.polys %>% st_sfc(crs = 4326))
+  abs.plot.data.sf <- plot.data %>% st_sf(geometry = abs.rect.polys %>% st_sfc(crs = 4326))
   f.data <- reactive({
     input$time_range %>% req()
     plot.data.sf %>%
@@ -5388,10 +5002,6 @@ server <- function(input, output, options){
   output$map <- renderLeaflet({
     leaflet() %>%
       addTiles() %>%
-      addLayersControl(
-        overlayGroups = c("Límites Originales", "Velocidad Discretizada"),
-        options = layersControlOptions(collapsed = F)
-      ) %>%
       addScaleBar(position = "bottomleft") %>%
       setView(
         lng = plot.data$lng %>% median(na.rm = T),
@@ -5407,16 +5017,10 @@ server <- function(input, output, options){
       proxy
       return()
     }
-    proxy %>% 
-      addPolygons(
-        data = abs.data.to.plot,
-        color = "black",
-        fill = F,
-        group = "Límites Originales"
-      ) %>%
+    proxy %>%
       addPolygons(
         data = data.to.plot,
-        fillColor = ~pal(field),
+        fillColor = ~field %>% pal(),
         color = "black",
         fillOpacity = 0.8,
         weight = 0.5,
@@ -5426,8 +5030,7 @@ server <- function(input, output, options){
           "<br>Hora: ", time.info,
           "<br>Longitud: ", lng %>% degrees.format(),
           "<br>Latitud: ", lat %>% degrees.format(),
-          "<br>Dirección: ", street.heading.from.north, "°"),
-        group = "Velocidad Discretizada"
+          "<br>Dirección: ", street.heading.from.north %>% round(), "°")
       )
   })
 }
