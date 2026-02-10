@@ -4690,23 +4690,24 @@ quantum.data <- function(
   if (street.aligned) dt[, heading := calculate.street.heading(lng, lat)]
   else dt[, heading := 0]
   rad.tolerance <- street.angle.tolerance * pi / 180
-  y.gap.meters <- rad.tolerance %>% sin() * space.gap
+  #y.gap.meters <- rad.tolerance %>% sin() * space.gap
   dt[, time.bin := time %>% cut(breaks = seq(time %>% min(), time %>% max() + time.gap, by = time.gap), include.lowest = T, labels = F) %>% as.integer()]
   dt.expanded <- dt[, {
-    cxm <- lat %>% meters.per.degree.lng() * lng
-    cym <- lat * meters.per.degree.lat
+    cxm <- lat %>% meters.per.degree.lng() * min(lng, mX, na.rm = T)
+    cym <- min(lat, mY, na.rm = T) * meters.per.degree.lat
     x.along <- heading %>% cos() * cxm + heading %>% sin() * cym
     y.across <- -heading %>% sin() * cxm + heading %>% cos() * cym
     dist.m <- ((lat %>% meters.per.degree.lng() * (MX - mX)) ^ 2 + (meters.per.degree.lat * (MY - mY)) ^ 2) %>% sqrt()
-    start.m <- x.along - dist.m / 2
-    end.m <- x.along + dist.m / 2
+    start.m <- x.along
+    end.m <- x.along + dist.m
     bins.idx <- ((start.m / space.gap) %>% floor()):((end.m / space.gap) %>% floor())
-    by <- (y.across / y.gap.meters) %>% floor()
+    by <- (y.across / space.gap) %>% round()
+    bh <- (heading / rad.tolerance) %>% floor()
     bins.idx %>% lapply(., function(bx){
       m.along.start <- bx * space.gap
       m.along.end <- (bx + 1) * space.gap
-      m.across.min <- by * y.gap.meters
-      m.across.max <- (by + 1) * y.gap.meters
+      m.across.min <- by * space.gap
+      m.across.max <- (by + 1) * space.gap
       len <- max(0, min(end.m, m.along.end) - max(start.m, m.along.start))
       inv.rot <- function(a, q){
         x.glob <- heading %>% cos() * a - heading %>% sin() * q
@@ -4726,6 +4727,7 @@ quantum.data <- function(
         time.bin = time.bin,
         x.bin = bx,
         y.bin = by,
+        heading.bin = bh,
         minX = min(p1$x, p2$x, p3$x, p4$x) / lat %>% meters.per.degree.lng(),
         maxX = max(p1$x, p2$x, p3$x, p4$x) / lat %>% meters.per.degree.lng(),
         minY = min(p1$y, p2$y, p3$y, p4$y) / meters.per.degree.lat,
@@ -4740,21 +4742,22 @@ quantum.data <- function(
     }) %>% rbindlist()
   }, by = 1:(dt %>% nrow())]
   result <- dt.expanded[, {
+    total.len <- len %>% sum()
     list(
       time = time.bin[1] * time.gap + first.date,
-      lng = (minX[1] + maxX[1]) / 2,
-      lat = (minY[1] + maxY[1]) / 2,
-      minX = minX[1],
-      maxX = maxX[1],
-      minY = minY[1],
-      maxY = maxY[1],
+      lng = (minX %>% min() + maxX %>% max()) / 2,
+      lat = (minY %>% min() + maxY %>% max()) / 2,
+      minX = minX %>% min(),
+      maxX = maxX %>% max(),
+      minY = minY %>% min(),
+      maxY = maxY %>% max(),
       field = speed %>% compile.function(W = len),
       summarised = name[1],
       n.points = .N,
       street.heading = heading %>% first(),
       street.heading.from.north = 90 - heading %>% first() * 180 / pi + ifelse(heading %>% first() > pi / 2, 360, 0)
     )
-  }, by = .(time.bin, x.bin, y.bin)]
+  }, by = .(time.bin, x.bin, y.bin, heading.bin)]
   return(result[order(time.bin, x.bin)])
 }
 ```
@@ -4870,7 +4873,7 @@ degrees.format <- function(deg, sec.decimals = 3) {
   return(paste0(degrees, "°", sprintf("%02d", minutes), "'", sprintf(paste0("%0", 2 + sec.decimals + ifelse(sec.decimals > 0, 1, 0), ifelse(sec.decimals > 0, paste0(".", sec.decimals, "f"), "d")), seconds), "''"))
 }
 filtered.waze.routes <- waze.routes[waze.routes$updateTime >= "2026-01-16" %>% as.POSIXct(tz = "UTC") & waze.routes$updateTime <= "2026-01-18" %>% as.POSIXct(tz = "UTC"),]
-filtered.waze.routes.polygons <- filtered.waze.routes %>% create.bbox.polygons()
+#filtered.waze.routes.polygons <- filtered.waze.routes %>% create.bbox.polygons()
 sg <- 100
 tg <- 1800
 start.sys <- Sys.time()
@@ -4888,7 +4891,7 @@ discretization.example <- quantum.data(
   space.gap = sg,
   time.gap = tg,
   street.aligned = T,
-  street.angle.tolerance = 10
+  street.angle.tolerance = 30
 )
 end.sys <- Sys.time()
 dt.sys <- end.sys - start.sys
@@ -4959,7 +4962,7 @@ server <- function(input, output, options){
     domain = plot.data$field
   )
   pal.dir <- colorNumeric(
-    palette = c("#F00", "#FF0", "#0F0", "#0FF", "#00F", "#F0F"),
+    palette = c("#F00", "#FF0", "#0F0", "#0FF", "#00F", "#F0F", "#F00"),
     domain = c(0, 360)
   )
   sd <- plot.data %>% SharedData$new()
@@ -4991,6 +4994,10 @@ server <- function(input, output, options){
         time.info = paste(time %>% min() %>% format(., "%H:%M"), "-", time %>% max() %>% format(., "%H:%M")),
         date.info =  ifelse(time %>% min() %>% format(., "%Y-%m-%d") == time %>% max() %>% format(., "%Y-%m-%d"), time %>% min() %>% format(., "%Y-%m-%d"), paste(time %>% min() %>% format(., "%Y-%m-%d"), "-", time %>% max() %>% format(., "%Y-%m-%d"))),
         street.heading.from.north = street.heading.from.north %>% first(),
+        time.bin = time.bin %>% middle.value(),
+        x.bin = x.bin %>% first(),
+        y.bin = y.bin %>% first(),
+        heading.bin = heading.bin %>% first(),
         .groups = 'drop'
       )
   })
@@ -5021,16 +5028,34 @@ server <- function(input, output, options){
       addPolygons(
         data = data.to.plot,
         fillColor = ~field %>% pal(),
-        color = "black",
+        color = ~street.heading.from.north %>% pal.dir(),
         fillOpacity = 0.8,
-        weight = 0.5,
-        popup = ~paste0(
-          "Velocidad: ", field %>% round(4),
-          " km/h<br>Fecha: ", date.info,
-          "<br>Hora: ", time.info,
-          "<br>Longitud: ", lng %>% degrees.format(),
-          "<br>Latitud: ", lat %>% degrees.format(),
-          "<br>Dirección: ", street.heading.from.north %>% round(), "°")
+        weight = 0.8,
+        popup = ~paste(
+          paste("Velocidad:", field %>% round(2), "km/h"),
+          paste("Fecha:", date.info),
+          paste("Hora:", time.info),
+          paste("Longitud:", lng %>% degrees.format()),
+          paste("Latitud:", lat %>% degrees.format()),
+          paste0("Dirección: ", street.heading.from.north %>% round(), "°"),
+          paste0("Bin: (", paste(x.bin, y.bin, heading.bin, sep = ", "), ")"),
+          sep = "<br>"
+        )
+      ) %>%
+      addLegend(
+        position = "bottomright",
+        pal = pal,
+        values = plot.data$field,
+        title = "Velocidad (km/h)",
+        opacity = 0.75
+      ) %>%
+      addLegend(
+        position = "bottomright",
+        pal = pal.dir,
+        values = c(0, 360),
+        bins = seq(0, 360, by = 60),
+        title = "Dirección (°)",
+        opacity = 0.75
       )
   })
 }
