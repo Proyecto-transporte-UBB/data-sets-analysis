@@ -41,6 +41,7 @@ library(kableExtra)
 library(knitr)
 library(leaflet)
 library(lubridate)
+library(lwgeom)
 library(maps)
 library(openxlsx)
 library(osmdata)
@@ -355,7 +356,7 @@ interurban.bus.accidents.cor %>% write.csv(file = "corr/interurban.bus.accidents
 ```
 
 
-### Granularidad temporal
+### Granularidad Temporal
 
 - Diferencia Mínima: 2 minutos
 - Diferencia Máxima: 10 días, 22 horas y 5 minutos
@@ -802,7 +803,7 @@ gh026929.cor %>% write.csv(file = "corr/gh026929.csv")
 - **Período de registro**: 29 de agosto de 2024, entre las 01:32 y 01:34 horas
 - **Duración total**: Aproximadamente 2 minutos de monitoreo continuo
 
-### Granularidad temporal
+### Granularidad Temporal
 
 - Diferencia Mínima: 0.055 segundos
 - Diferencia Máxima: 0.059 segundos
@@ -1077,7 +1078,7 @@ tracking.gps.df.cor %>% write.csv(file = "corr/tracking.gps.df.csv")
 - **Duración**: 31 días completos + 5 minutos
 - **Cobertura temporal**: Mes completo de agosto 2025
 
-### Granularidad temporal (separado por EVT_PPU)
+### Granularidad Temporal (separado por EVT_PPU)
 
 - Diferencia Mínima: 1 segundo
 - Diferencia Máxima: 25 días, 22 horas, 42 minutos, 36 segundos
@@ -3996,6 +3997,9 @@ binding.time <- end.sys - start.sys
 start.sys <- Sys.time()
 waze.routes.df$toName <- waze.routes.df$toName %>% as.factor()
 waze.routes.df$name <- waze.routes.df$name %>% as.factor()
+waze.routes.df$section.dir <- waze.routes.df$name %>% str_split_i(., "_", 2) %>% as.factor()
+waze.routes.df$section.name <- waze.routes.df$name %>% str_split_i(., "_", 3) %>% as.factor()
+waze.routes.df$section.num <- waze.routes.df$name %>% str_split_i(., "_", 4) %>% as.numeric()
 waze.routes.df$fromName <- waze.routes.df$fromName %>% as.factor()
 waze.routes.df$type <- waze.routes.df$type %>% as.factor()
 waze.routes.df$leadAlert.city <- waze.routes.df$leadAlert.city %>% as.factor()
@@ -4026,7 +4030,17 @@ end.sys <- Sys.time()
 modifying.time <- end.sys - start.sys
 # Modifying Time: 55m + 31.33s
 waze.routes.df %>% summary()
-waze.routes <- waze.routes.df %>% distinct(id, date, file, .keep_all = T) %>% select(-x, -y, -point_index)
+waze.routes <- waze.routes.df[!(waze.routes.df$point_index %>% is.na()),] %>%
+  group_by(id, date, file) %>%
+  mutate(
+    firstX = x[point_index %>% which.min()],
+    lastX  = x[point_index %>% which.max()],
+    firstY = y[point_index %>% which.min()],
+    lastY  = y[point_index %>% which.max()]
+  ) %>%
+  ungroup() %>%
+  distinct(id, date, file, .keep_all = T) %>%
+  select(-x, -y, -point_index)
 waze.routes %>% summary()
 waze.routes.df.short <- waze.routes.df %>%
   rename(
@@ -4041,7 +4055,10 @@ waze.routes.df.short <- waze.routes.df %>%
     alert_com = leadAlert.numComments,
     alert_thumbs = leadAlert.numThumbsUp,
     alert_notthere = leadAlert.numNotThereReports,
-    date_str = date
+    date_str = date,
+    sect_num = section.num,
+    sect_dir = section.dir,
+    sect_name = section.name
   )
 waze.routes.df.short$date_str <- waze.routes.df.short$date_str %>% as.character()
 waze.routes.df.clean <- waze.routes.df.short %>%
@@ -4056,7 +4073,7 @@ waze.routes.df.sf %>% st_write(.,
   append = F,
   delete_dsn = T
 )
-create.bbox.polygons <- function(df){
+create.bbox.polygons <- function(df, deletePoints = T){
   polygons.list <- list()
   for (i in df %>% nrow() %>% seq_len()) {
     minX <- df$minX[i]
@@ -4078,7 +4095,8 @@ create.bbox.polygons <- function(df){
   }
   valid.rows <- !sapply(polygons.list, is.null)
   df.valid <- df[valid.rows, ]
-  df.sf <- df.valid %>% st_sf(geometry = polygons.list[valid.rows] %>% st_sfc(crs = 4326)) %>% select(-minX, -minY, -maxX, -maxY)
+  df.sf.0 <- df.valid %>% st_sf(geometry = polygons.list[valid.rows] %>% st_sfc(crs = 4326))
+  df.sf <- if(deletePoints) df.sf.0 %>% select(-minX, -minY, -maxX, -maxY) else df.sf.0
   return(df.sf)
 }
 waze.routes.polygons <- waze.routes %>% create.bbox.polygons() %>%
@@ -4104,6 +4122,26 @@ waze.routes.polygons %>% st_write(
   delete_dsn = T
 )
 
+lines.geometry <- waze.routes.df %>%
+  distinct(name, point_index, .keep_all = T) %>%
+  filter(!(x %>% is.na()), !(y %>% is.na())) %>%
+  st_as_sf(
+    coords = c("x", "y"),
+    crs = 4326
+  ) %>%
+  group_by(name) %>%
+  summarise(
+    geometry = geometry %>% st_combine(),
+    .groups = "drop"
+  ) %>%
+  st_cast("LINESTRING")
+create.lines <- function(df) df %>%
+  inner_join(
+    lines.geometry,
+    by = "name"
+  ) %>%
+  st_as_sf()
+waze.routes.lines <- waze.routes %>% create.lines()
 # Mapa de calor (Velocidad, tramo x hora)
 ## Datos de Carrera y Pedro Aguirre Cerda
 ## Martes y miércoles, respectivamente
@@ -4609,158 +4647,210 @@ waze.routes.alerts %>% ggplot() +
 ```{r quantum.data, include=FALSE}
 meters.per.degree.lat <- 111320
 
-meters.per.degree.lng <- function(lat.d) {
-  meters.per.degree.lat * cos(lat.d * pi / 180)
-}
-
-calculate.street.heading <- function(lng.data, lat.data, buffer.meters = 100) {
-  if(lat.data %>% length() == 0) return(0 %>% numeric())
-  points.df <- data.frame(lng = lng.data, lat = lat.data)
-  points.sf <- points.df %>% st_as_sf(
-    coords = c("lng", "lat"),
-    crs = 4326
-  )
-  bbox <- points.sf %>% st_bbox()
-  osm.roads <- opq(bbox = bbox + c(-1, -1, 1, 1) * 0.002) %>%
-    add_osm_feature(key = "highway") %>%
-    osmdata_sf()
-  if(osm.roads$osm_lines %>% is.null() | osm.roads$osm_lines %>% nrow() == 0) {
-    message("No streets found")
-    return(rep(NA, lat.data %>% length()))
-  }
-  roads.proj <- osm.roads$osm_lines %>% st_transform(crs = 3857)
-  points.proj <- points.sf %>% st_transform(crs = 3857)
-  coords <- roads.proj %>% st_coordinates() %>% as.data.frame()
-  p1 <- coords[-(coords %>% nrow()),]
-  p2 <- coords[-1,]
-  valid.segments <- p1$L1 == p2$L1
-  p1 <- p1[valid.segments,]
-  p2 <- p2[valid.segments,]
-  seg.headings <- atan2(p2$Y - p1$Y, p2$X - p1$X)
-  mid.points.sf <- data.frame(heading = seg.headings) %>% st_as_sf(
-    geometry = mapply(
-      function(x1, y1, x2, y2) (c(x1 + x2, y1 + y2) / 2) %>% st_point(),
-      p1$X, p1$Y, p2$X, p2$Y,
-      SIMPLIFY = F
-    ) %>% st_sfc(),
-    crs = 3857
-  )
-  nearest.indices <- st_nearest_feature(points.proj, mid.points.sf)
-  return(seg.headings[nearest.indices])
-}
-
-stat.mode <- function(x){
-  ux <- x %>% unique()
-  ux[match(x, ux) %>% tabulate() %>% which.max()]
-}
-
-middle.value <- function(X) X %>% range(na.rm = T) %>% mean(na.rm = T)
+meters.per.degree.lng <- function(lat.d) meters.per.degree.lat * cos(lat.d * pi / 180)
 
 quantum.data <- function(
   time.data = NA,
   lng.data = NA,
   lat.data = NA,
+  geom.data = NA,
   field.data = NA,
   names.data = NA,
-  speed.data = NA,
-  length.data = NA,
-  minX = NA,
-  maxX = NA,
-  minY = NA,
-  maxY = NA,
   time.gap = 5,
   space.gap = 50,
   street.aligned = T,
-  street.angle.tolerance = 30,
-  compile.function = function(X, W) X %>% weighted.mean(w = W)
+  street.angle.tolerance = pi / 6,
+  compile.function = function(X, W) X %>% weighted.mean(w = W, na.rm = T)
 ) {
+  n.rows <- max(time.data %>% length(), lng.data %>% length(), geom.data %>% length(), na.rm = T)
   dt <- data.table(
-    time = time.data,
-    lng = lng.data,
-    lat = lat.data,
-    id = field.data,
-    name = names.data,
-    speed = speed.data,
-    mX = minX,
-    MX = maxX,
-    mY = minY,
-    MY = maxY
+    id = 1:n.rows,
+    field = if(field.data %>% is.na() %>% all()) rep(NA, n.rows) else field.data,
+    name = if(names.data %>% is.na() %>% all()) rep(NA, n.rows) else names.data
   )
-  first.date <- time.data %>% min()
-  if (street.aligned) dt[, heading := calculate.street.heading(lng, lat)]
-  else dt[, heading := 0]
-  rad.tolerance <- street.angle.tolerance * pi / 180
-  #y.gap.meters <- rad.tolerance %>% sin() * space.gap
-  dt[, time.bin := time %>% cut(breaks = seq(time %>% min(), time %>% max() + time.gap, by = time.gap), include.lowest = T, labels = F) %>% as.integer()]
-  dt.expanded <- dt[, {
-    cxm <- lat %>% meters.per.degree.lng() * min(lng, mX, na.rm = T)
-    cym <- min(lat, mY, na.rm = T) * meters.per.degree.lat
-    x.along <- heading %>% cos() * cxm + heading %>% sin() * cym
-    y.across <- -heading %>% sin() * cxm + heading %>% cos() * cym
-    dist.m <- ((lat %>% meters.per.degree.lng() * (MX - mX)) ^ 2 + (meters.per.degree.lat * (MY - mY)) ^ 2) %>% sqrt()
-    start.m <- x.along
-    end.m <- x.along + dist.m
-    bins.idx <- ((start.m / space.gap) %>% floor()):((end.m / space.gap) %>% floor())
-    by <- (y.across / space.gap) %>% round()
-    bh <- (heading / rad.tolerance) %>% floor()
-    bins.idx %>% lapply(., function(bx){
-      m.along.start <- bx * space.gap
-      m.along.end <- (bx + 1) * space.gap
-      m.across.min <- by * space.gap
-      m.across.max <- (by + 1) * space.gap
-      len <- max(0, min(end.m, m.along.end) - max(start.m, m.along.start))
-      inv.rot <- function(a, q){
-        x.glob <- heading %>% cos() * a - heading %>% sin() * q
-        y.glob <- heading %>% sin() * a + heading %>% cos() * q
-        return(
-          list(
-            x = x.glob,
-            y = y.glob
-          )
-        )
-      }
-      p1 <- inv.rot(m.along.start, m.across.min)
-      p2 <- inv.rot(m.along.end, m.across.min)
-      p3 <- inv.rot(m.along.end, m.across.max)
-      p4 <- inv.rot(m.along.start, m.across.max)
-      list(
-        time.bin = time.bin,
-        x.bin = bx,
-        y.bin = by,
-        heading.bin = bh,
-        minX = min(p1$x, p2$x, p3$x, p4$x) / lat %>% meters.per.degree.lng(),
-        maxX = max(p1$x, p2$x, p3$x, p4$x) / lat %>% meters.per.degree.lng(),
-        minY = min(p1$y, p2$y, p3$y, p4$y) / meters.per.degree.lat,
-        maxY = max(p1$y, p2$y, p3$y, p4$y) / meters.per.degree.lat,
-        speed = speed,
-        len = len,
-        name = name,
-        heading = heading,
-        lng = (heading %>% cos() * (m.along.start + m.along.end) / 2 - heading %>% sin() * (m.across.min + m.across.max) / 2) / lat %>% meters.per.degree.lng(),
-        lat = (heading %>% sin() * (m.along.start + m.along.end) / 2 + heading %>% cos() * (m.across.min + m.across.max) / 2) / meters.per.degree.lat
-      )
-    }) %>% rbindlist()
-  }, by = 1:(dt %>% nrow())]
-  result <- dt.expanded[, {
-    total.len <- len %>% sum()
-    list(
-      time = time.bin[1] * time.gap + first.date,
-      lng = (minX %>% min() + maxX %>% max()) / 2,
-      lat = (minY %>% min() + maxY %>% max()) / 2,
-      minX = minX %>% min(),
-      maxX = maxX %>% max(),
-      minY = minY %>% min(),
-      maxY = maxY %>% max(),
-      field = speed %>% compile.function(W = len),
-      summarised = name[1],
-      n.points = .N,
-      street.heading = heading %>% first(),
-      street.heading.from.north = 90 - heading %>% first() * 180 / pi + ifelse(heading %>% first() > pi / 2, 360, 0)
+  if(!(time.data %>% is.na() %>% all())){
+    dt$time.bin <- (time.data %>% as.numeric() %/% time.gap * time.gap) %>% as.POSIXct(origin = "1970-01-01")
+  } else {
+    dt$time.bin <- NA
+  }
+  is.point.data <- !(lng.data %>% is.na() %>% all()) & !(lat.data %>% is.na() %>% all())
+  is.line.data <- !(geom.data %>% is.na() %>% all())
+  if(is.point.data){
+    dt$lng <- lng.data
+    dt$lat <- lat.data
+    sf.data <- dt %>% st_as_sf(
+      coords = c("lng", "lat"),
+      crs = 4326
+    ) %>% st_transform(
+      crs = 3857
     )
-  }, by = .(time.bin, x.bin, y.bin, heading.bin)]
-  return(result[order(time.bin, x.bin)])
+    if(street.aligned & !(names.data %>% is.na() %>% all())){
+      sf.lines <- sf.data %>%
+        group_by(name) %>%
+        summarise(geometry = geometry %>% st_combine() %>% st_cast("LINESTRING"))
+    }
+    grid <- sf.data %>% st_make_grid(cellsize = space.gap * c(1, street.angle.tolerance %>% sin()))
+    sf.data$space.bin <- st_intersects(sf.data, grid) %>% as.integer()
+    sf.data$weight <- 1
+  } else if (is.line.data){
+    sf.data <- dt %>% st_sf(geometry = geom.data)
+    if(sf.data %>% st_crs() %>% is.na()) st_crs(sf.data) <- 4326
+    sf.data <- sf.data %>% st_transform(crs = 3857)
+    sf.data$len <- sf.data %>% st_length()
+    grid <- sf.data %>% st_make_grid(cellsize = space.gap * c(1, street.angle.tolerance %>% sin()))
+    grid.sf <- st_sf(
+      space.bin = 1:(grid %>% length()),
+      geometry = grid
+    )
+    sf.data <- st_intersection(sf.data, grid.sf) %>% st_collection_extract(type = "LINE") %>% st_cast(to = "LINESTRING", warn = F)
+    sf.data$weight <- sf.data %>% st_length() %>% as.numeric()
+    if(street.aligned){
+      get.angle <- function(geom){
+        pts <- geom %>% st_coordinates()
+        if(pts %>% nrow() < 2) return(NA)
+        p1 <- pts[1,]
+        p2 <- pts[pts %>% nrow(),]
+        atan2(p2["Y"] - p1["Y"], p2["X"] - p1["X"])
+      }
+      sf.data$angle.rad <- sf.data %>% st_geometry() %>% sapply(FUN = get.angle)
+    }
+  } else {
+    stop("You must provide 'lng.data' and 'lat.data', or 'geom.data'.")
+  }
+  dt.f <- sf.data %>% as.data.table()
+  group.cols <- c("name", "time.bin", "space.bin") %>% intersect(., dt.f %>% names())
+  compiled.data <- dt.f[, {
+    c.field <- field %>% compile.function(W = weight)
+    a.rad <- if(street.aligned & "angle.rad" %in% (.SD %>% names())) angle.rad %>% mean(na.rm = T) else NA
+    coords.c <- geometry %>% st_combine() %>% st_centroid() %>% st_coordinates()
+    xc <- coords.c[1, "X"]
+    yc <- coords.c[1, "Y"]
+    ang <- if(a.rad %>% is.na()) 0 else a.rad
+    dx <- ang %>% cos() * (space.gap / 2)
+    dy <- ang %>% sin() * (space.gap / 2)
+    new.geom <- c(xc - dx, xc + dx, yc - dy, yc + dy) %>% matrix(ncol = 2) %>% st_linestring()
+    .(
+      compiled.field = c.field,
+      angle.rad = a.rad,
+      geometry = list(new.geom)
+    )
+  }, by = group.cols]
+  compiled.data$name <- compiled.data$name %>% as.factor()
+  compiled.data$geometry <- compiled.data$geometry %>% st_sfc(crs = 3857)
+  return(compiled.data %>% st_sf() %>% st_transform(crs = 4326))
+}
+
+quantum.data <- function(
+  time.data = NA,
+  lng.data = NA,
+  lat.data = NA,
+  geom.data = NA,
+  field.data = NA,
+  names.data = NA,
+  time.gap = 5,
+  space.gap = 50,
+  street.aligned = T,
+  street.angle.tolerance = pi / 6,
+  compile.function = function(X, W) X %>% weighted.mean(w = W, na.rm = T)
+) {
+  n.rows <- max(time.data %>% length(), lng.data %>% length(), geom.data %>% length(), na.rm = T)
+  dt <- data.table(
+    id = 1:n.rows,
+    field = if(field.data %>% is.na() %>% all()) rep(NA, n.rows) else field.data,
+    name = if(names.data %>% is.na() %>% all()) rep(NA, n.rows) else names.data
+  )
+  if(!(time.data %>% is.na() %>% all())){
+    dt$time.bin <- (time.data %>% as.numeric() %/% time.gap * time.gap) %>% as.POSIXct(origin = "1970-01-01")
+  } else {
+    dt$time.bin <- NA
+  }
+  is.point.data <- !(lng.data %>% is.na() %>% all()) & !(lat.data %>% is.na() %>% all())
+  is.line.data <- !(geom.data %>% is.na() %>% all())
+  
+  if(is.point.data){
+    dt$lng <- lng.data
+    dt$lat <- lat.data
+    sf.data <- dt %>% st_as_sf(
+      coords = c("lng", "lat"),
+      crs = 4326
+    ) %>% st_transform(
+      crs = 3857
+    )
+    if(street.aligned & !(names.data %>% is.na() %>% all())){
+      sf.lines <- sf.data %>%
+        group_by(name) %>%
+        summarise(geometry = geometry %>% st_combine() %>% st_cast("LINESTRING"))
+    }
+    grid <- sf.data %>% st_make_grid(cellsize = space.gap * c(1, street.angle.tolerance %>% sin()))
+    sf.data$space.bin <- st_intersects(sf.data, grid) %>% as.integer()
+    sf.data$weight <- 1
+  } else if (is.line.data){
+    sf.data <- dt %>% st_sf(geometry = geom.data)
+    if(sf.data %>% st_crs() %>% is.na()) st_crs(sf.data) <- 4326
+    sf.data <- sf.data %>% st_transform(crs = 3857)
+    sf.data$len <- sf.data %>% st_length()
+    grid <- sf.data %>% st_make_grid(cellsize = space.gap * c(1, street.angle.tolerance %>% sin()))
+    grid.sf <- st_sf(
+      space.bin = 1:(grid %>% length()),
+      geometry = grid
+    )
+    sf.data <- st_intersection(sf.data, grid.sf) %>% st_collection_extract(type = "LINE") %>% st_cast(to = "LINESTRING", warn = F)
+    sf.data$weight <- sf.data %>% st_length() %>% as.numeric()
+    if(street.aligned){
+      get.angle <- function(geom){
+        pts <- geom %>% st_coordinates()
+        if(pts %>% nrow() < 2) return(NA)
+        p1 <- pts[1,]
+        p2 <- pts[pts %>% nrow(),]
+        atan2(p2["Y"] - p1["Y"], p2["X"] - p1["X"])
+      }
+      sf.data$angle.rad <- sf.data %>% st_geometry() %>% sapply(FUN = get.angle)
+    }
+  } else {
+    stop("You must provide 'lng.data' and 'lat.data', or 'geom.data'.")
+  }
+  
+  dt.f <- sf.data %>% as.data.table()
+  group.cols <- intersect(c("name", "time.bin", "space.bin"), names(dt.f))
+  
+  compiled.data <- dt.f[, {
+    c.field <- compile.function(X = field, W = weight)
+    a.rad <- if(street.aligned && "angle.rad" %in% names(.SD)) mean(angle.rad, na.rm = TRUE) else NA
+    
+    geom_sfc <- if (inherits(geometry, "sfc")) geometry else do.call(st_sfc, c(geometry, list(crs = 3857)))
+    geom_combined <- st_combine(geom_sfc)
+    
+    if (is.point.data) {
+      coords <- st_coordinates(geom_combined)
+      if (nrow(coords) > 1) {
+        # Castea los MULTIPOINT a LINESTRING
+        new.geom <- st_cast(geom_combined, "LINESTRING")[[1]]
+      } else if (nrow(coords) == 1) {
+        # Si hay un único punto en este bin, duplicamos su coordenada 
+        # para forzar la creación de un LINESTRING estricto (de longitud cero)
+        pt <- c(coords[1, "X"], coords[1, "Y"])
+        new.geom <- st_linestring(matrix(c(pt, pt), ncol = 2, byrow = TRUE))
+      } else {
+        new.geom <- st_linestring()
+      }
+    } else {
+      new.geom <- st_line_merge(st_union(geom_combined))[[1]] 
+    }
+    
+    .(
+      compiled.field = c.field,
+      angle.rad = a.rad,
+      geometry = list(new.geom)
+    )
+  }, by = group.cols]
+  
+  compiled.data$name <- as.factor(compiled.data$name)
+  compiled.data$geometry <- st_sfc(compiled.data$geometry, crs = 3857)
+  return(compiled.data %>% st_sf() %>% st_transform(crs = 4326))
 }
 ```
+
+## Diagrama de Flujo
 
 [Ver Diagrama de Flujo](https://mermaid.live/edit#pako:eNqFVV1PIzcU_SuWpdWCFAYICYRRSMVCd1upuyCSvuyEB8_4ZmLqsae2ByWL-DF97EOf-hP4Y722Z5JAt-o8gD-uz7k-9_jmiRaaA01paVi9JLPruSL4TR0zbi_7WYlC6JT83jDlmirhzLH7fXJwMCG45bIrA8wQv5o4lksghVZ-qi3hQEA5wzi7j5Dx77t35BocmEooVoiXv5UPvDECY-M8hnn0SGMvpSgV8CfrDIBLWJySiwsy--G5je6C8AiZvvwVTn4C9xMwLlSZ_SJZhXkWTBaNZA6SFmsZ98e5OZyMxeRXy8hNDWoadj-zmtTMMIKMyl_T300yjyJhfCgm998h_6ID91cwuiOfgiMtEbkgR2_VuNJqIcrGbNX4IJSN29srBNQYml3FaxiC4iZOSzBMFUDWZJ2UrE4qL69taXYS2YGIe3EclmeiAqRt6-lwluRCkZxZxjXWMS4h-tvsf1zVTNmQ-ZrMMBG70KZq77J39fKHT1WTWnv1OSM6t2Ae4_5-RGm5Qx4tnFbZnI7zyQ466nIdfLXHXQJ-nQPfHx_mkzl9lZRt8mjlOb01ugDLKm-umMNtg6M5jZH-48JA4ZCQzD5sVzdphKQQ5iEGZThc4zCYQRsOCu9kyafbKWEEdTe6091_23MB5k47FkD8IAiQkk0pV-hrjTXyRWQF4tjOlJet--ABbGfBkPXGL9_xpP86vkDuPZVtHp4hWF1LwNaYCJMInK96JF8HzqLJBRgvtVcMJNbsAZzeQfZgbQ94RJbsY6NiMkI9Jka7nXs9vvxpnMAqkPr4oB4EArTTrnql1LnPYYcg4gaKm0cwktVb03uZhGs4eS9Bvcf7S2KhrHyJAzr3XUd7XYLh8KItMCj-xryXpYFyt-u0ZLF9GN3U_v1iVIN9IKjRvYweFiz8Wydbgn_5Dx-Y1VLw7jncgW2k2_9__3Xc7ZOtaq9wdllLUQTrVbWQkCxw0R_tnIJ-q4AL73R8HMa_XJ9z0OmNNzrMSICKgfECb1UugoqC-7aS60aFBpLrVStx8BzITW8PmBuYgPpFG7fseuAG93XjTRaYcqJ85H8Wacq8gnG6ixlIPqKZ5RRXs5vgp9dVwtxXO_XZBMdWo_hehkspuUN3G_X6d8xgqSrkvd-nPfxpFJymzjTQoxW-IOan9MmjzqlbQgVzmuKQM_ObL-4znsEG8lXrqjuGBS2XNF0waXHW1EgF14KhU7Yh4Kt2hWI7mo5G_YBB0ye6ounx6DQZ9s_Pz4_OhoPT0_PBqEfXND04Oz5Ozkf94eDspN8_weXnHv0WaE-S0Wg0OOofnw2PhoP-ybD__A-oeqIJ)
 
@@ -4862,10 +4952,12 @@ El flujo lógico para la transformación de los datos sigue estos pasos:
 4. **Colapso Estadístico**: Se agrupan todas las contribuciones que caen en la misma terna de índices $(j, k, l)$ y se calcula la media ponderada de la variable objetivo.
 5. **Georeferenciación Inversa**: Los centroides de las celdas discretas en el plano $(u, v)$ se transforman de vuelta a coordenadas $(\lambda, \phi)$ para permitir su visualización en mapas y sistemas de información geográfica (SIG).
 
-## Ejemplo
+## Ejemplos
+
+### Ejemplo Rutas de Waze
 
 ```{r discretization.example, eval=FALSE}
-degrees.format <- function(deg, sec.decimals = 3) {
+degrees.format <- function(deg, sec.decimals = 2) {
   pos <- deg %>% abs()
   degrees <- (pos %>% floor() * deg %>% sign()) %>% as.integer()
   minutes <- ((pos * 60) %% 60) %>% floor()
@@ -4873,40 +4965,30 @@ degrees.format <- function(deg, sec.decimals = 3) {
   return(paste0(degrees, "°", sprintf("%02d", minutes), "'", sprintf(paste0("%0", 2 + sec.decimals + ifelse(sec.decimals > 0, 1, 0), ifelse(sec.decimals > 0, paste0(".", sec.decimals, "f"), "d")), seconds), "''"))
 }
 filtered.waze.routes <- waze.routes[waze.routes$updateTime >= "2026-01-16" %>% as.POSIXct(tz = "UTC") & waze.routes$updateTime <= "2026-01-18" %>% as.POSIXct(tz = "UTC"),]
-#filtered.waze.routes.polygons <- filtered.waze.routes %>% create.bbox.polygons()
+filtered.waze.routes.lines.0 <- filtered.waze.routes %>%
+  distinct(name, .keep_all = T) %>%
+  create.lines()
+filtered.waze.routes.lines <- filtered.waze.routes %>%
+  create.lines()
 sg <- 100
-tg <- 1800
+tg <- 300
 start.sys <- Sys.time()
 discretization.example <- quantum.data(
-  time.data = filtered.waze.routes$updateTime,
-  lng.data = (filtered.waze.routes$minX + filtered.waze.routes$maxX) / 2,
-  lat.data = (filtered.waze.routes$minY + filtered.waze.routes$maxY) / 2,
-  field.data = filtered.waze.routes$id,
-  #names.data = filtered.waze.routes$name,
-  speed.data = filtered.waze.routes$speed,
-  minX = filtered.waze.routes$minX,
-  maxX = filtered.waze.routes$maxX,
-  minY = filtered.waze.routes$minY,
-  maxY = filtered.waze.routes$maxY,
+  time.data = filtered.waze.routes.lines$updateTime,
+  geom.data = filtered.waze.routes.lines$geometry,
+  field.data = filtered.waze.routes.lines$speed,
+  names.data = paste(filtered.waze.routes.lines$section.name, "-", filtered.waze.routes.lines$section.dir),
   space.gap = sg,
   time.gap = tg,
   street.aligned = T,
-  street.angle.tolerance = 30
-)
+  street.angle.tolerance = pi / 6
+) %>%
+  arrange(time.bin) %>%
+  mutate(
+    time.bin = time.bin %>% as.POSIXct(tz = "UTC")
+  )
 end.sys <- Sys.time()
 dt.sys <- end.sys - start.sys
-
-plot.data <- discretization.example %>%
-  filter(
-    !(time %>% is.na()),
-    !(lng %>% is.na()),
-    !(lat %>% is.na()),
-    !(field %>% is.na())
-  ) %>%
-  arrange(time) %>%
-  mutate(
-    time = time %>% as.POSIXct(tz = "UTC")
-  )
 
 ui <- fluidPage(
   titlePanel("Mapa con Filtro de Tiempo"),
@@ -4918,9 +5000,9 @@ ui <- fluidPage(
           sliderInput(
             "time_range",
             "Selecciona el rango de tiempo:",
-            min = plot.data$time %>% min(),
-            max = plot.data$time %>% max(),
-            value = plot.data$time %>% range(),
+            min = discretization.example$time.bin %>% min(),
+            max = discretization.example$time.bin %>% max(),
+            value = discretization.example$time.bin %>% range(),
             step = tg,
             animate = T,
             width = "100%",
@@ -4939,129 +5021,166 @@ ui <- fluidPage(
 )
 
 server <- function(input, output, options){
-  rectangle <- function(lng, lat, angle, dx, dy){
-    corners.x <- c(-1, -1, 1, 1, -1) * dx / 2
-    corners.y <- c(1, -1, -1, 1, 1) * dy / 2
-    rot.x <- angle %>% cos() * corners.x - angle %>% sin() * corners.y
-    rot.y <- angle %>% sin() * corners.x + angle %>% cos() * corners.y
-    final.lng <- lng + rot.x / lat %>% meters.per.degree.lng()
-    final.lat <- lat + rot.y / meters.per.degree.lat
-    return(cbind(final.lng, final.lat))
-  }
-  abs.rectangle <- function(minX, minY, maxX, maxY, angle, center.lat) {
-    corners.x <- c(minX, maxX, maxX, minX, minX)
-    corners.y <- c(minY, minY, maxY, maxY, minY)
-    final.lng.m <- angle %>% cos() * corners.x - angle %>% sin() * corners.y
-    final.lat.m <- angle %>% sin() * corners.x + angle %>% cos() * corners.y
-    final.lng <- final.lng.m / center.lat %>% meters.per.degree.lng()
-    final.lat <- final.lat.m / meters.per.degree.lat
-    return(cbind(corners.x, corners.y))
-  }
   pal <- colorNumeric(
-    palette = c("blue", "green", "yellow", "red"),
-    domain = plot.data$field
+    palette = c("#F00", "#FF0", "#0F0", "#0FF", "#00F", "#F0F"),
+    domain = discretization.example$compiled.field
   )
-  pal.dir <- colorNumeric(
-    palette = c("#F00", "#FF0", "#0F0", "#0FF", "#00F", "#F0F", "#F00"),
-    domain = c(0, 360)
-  )
-  sd <- plot.data %>% SharedData$new()
-  rect.polys <- 1:(plot.data %>% nrow()) %>% lapply(., function(i){
-    d <- plot.data[i,]
-    if(d$street.heading %>% is.na() || d$lng %>% is.na()) return(st_polygon())
-    coords <- rectangle(d$lng, d$lat, d$street.heading, sg, 5)
-    coords %>% list() %>% st_polygon() %>% return()
-  })
-  abs.rect.polys <- 1:(plot.data %>% nrow()) %>% lapply(., function(i){
-    d <- plot.data[i,]
-    if(d$lng %>% is.na()) return(st_polygon())
-    abs.coords <- abs.rectangle(d$minX, d$minY, d$maxX, d$maxY, d$street.heading, d$lat)
-    abs.coords %>% list() %>% st_polygon() %>% return()
-  })
-  plot.data.sf <- plot.data %>% st_sf(geometry = rect.polys %>% st_sfc(crs = 4326))
-  abs.plot.data.sf <- plot.data %>% st_sf(geometry = abs.rect.polys %>% st_sfc(crs = 4326))
+  sd <- filtered.waze.routes %>% SharedData$new()
   f.data <- reactive({
     input$time_range %>% req()
-    plot.data.sf %>%
-      filter(time >= input$time_range[1] & time <= input$time_range[2]) %>%
-      group_by(geometry) %>%
+    discretization.example %>%
+      filter(time.bin >= input$time_range[1] & time.bin <= input$time_range[2]) %>%
+      group_by(geometry, name) %>%
       summarise(
-        field = field %>% weighted.mean(w = n.points),
-        lng = lng %>% first(),
-        lat = lat %>% first(),
-        street.heading = street.heading %>% mean(na.rm = T),
-        n.points = n.points %>% sum(),
-        time.info = paste(time %>% min() %>% format(., "%H:%M"), "-", time %>% max() %>% format(., "%H:%M")),
-        date.info =  ifelse(time %>% min() %>% format(., "%Y-%m-%d") == time %>% max() %>% format(., "%Y-%m-%d"), time %>% min() %>% format(., "%Y-%m-%d"), paste(time %>% min() %>% format(., "%Y-%m-%d"), "-", time %>% max() %>% format(., "%Y-%m-%d"))),
-        street.heading.from.north = street.heading.from.north %>% first(),
-        time.bin = time.bin %>% middle.value(),
-        x.bin = x.bin %>% first(),
-        y.bin = y.bin %>% first(),
-        heading.bin = heading.bin %>% first(),
+        field = compiled.field %>% mean(),
+        geometry = geometry %>% first(),
+        time.info = paste(time.bin %>% min() %>% format(., "%H:%M"), "-", time.bin %>% max() %>% format(., "%H:%M")),
+        date.info =  ifelse(time.bin %>% min() %>% format(., "%Y-%m-%d") == time.bin %>% max() %>% format(., "%Y-%m-%d"), time.bin %>% min() %>% format(., "%Y-%m-%d"), paste(time.bin %>% min() %>% format(., "%Y-%m-%d"), "-", time.bin %>% max() %>% format(., "%Y-%m-%d"))),
+        time.bin = time.bin %>% range(na.rm = T) %>% mean(na.rm = T),
+        space.bin = space.bin %>% first(),
+        name = name %>% first(),
         .groups = 'drop'
       )
-  })
-  abs.f.data <- reactive({
-    input$time_range %>% req()
-    abs.plot.data.sf %>%
-      filter(time >= input$time_range[1] & time <= input$time_range[2])
   })
   output$map <- renderLeaflet({
     leaflet() %>%
       addTiles() %>%
       addScaleBar(position = "bottomleft") %>%
       setView(
-        lng = plot.data$lng %>% median(na.rm = T),
-        lat = plot.data$lat %>% median(na.rm = T),
+        lng = ((filtered.waze.routes$minX + filtered.waze.routes$maxX) / 2) %>% mean(na.rm = T),
+        lat = ((filtered.waze.routes$minY + filtered.waze.routes$maxY) / 2) %>% mean(na.rm = T),
         zoom = 12
+      ) %>%
+      addLayersControl(
+        overlayGroups = filtered.waze.routes.polygons$section.dir %>% levels(),
+        options = layersControlOptions(collapsed = F)
       )
   })
   observe({
-    data.to.plot <- f.data()
-    abs.data.to.plot <- abs.f.data()
     proxy <- leafletProxy("map") %>% clearShapes()
-    if(data.to.plot %>% nrow() == 0){
-      proxy
-      return()
-    }
     proxy %>%
-      addPolygons(
-        data = data.to.plot,
-        fillColor = ~field %>% pal(),
-        color = ~street.heading.from.north %>% pal.dir(),
-        fillOpacity = 0.8,
-        weight = 0.8,
+      addPolylines(
+        data = f.data(),
+        color = ~pal(field),
+        group = ~name %>% str_split_i(., " - ", 2),
         popup = ~paste(
-          paste("Velocidad:", field %>% round(2), "km/h"),
+          paste("Tramo:", name),
           paste("Fecha:", date.info),
           paste("Hora:", time.info),
-          paste("Longitud:", lng %>% degrees.format()),
-          paste("Latitud:", lat %>% degrees.format()),
-          paste0("Dirección: ", street.heading.from.north %>% round(), "°"),
-          paste0("Bin: (", paste(x.bin, y.bin, heading.bin, sep = ", "), ")"),
+          paste("Velocidad:", (field * 18 / 5) %>% round(2), "km/h"),
           sep = "<br>"
-        )
-      ) %>%
-      addLegend(
-        position = "bottomright",
-        pal = pal,
-        values = plot.data$field,
-        title = "Velocidad (km/h)",
-        opacity = 0.75
-      ) %>%
-      addLegend(
-        position = "bottomright",
-        pal = pal.dir,
-        values = c(0, 360),
-        bins = seq(0, 360, by = 60),
-        title = "Dirección (°)",
-        opacity = 0.75
+        ),
+        opacity = 1
       )
   })
 }
 
 shinyApp(ui, server)
 ```
+
+### Ejemplo GPS
+
+```{r discretization.example.1 eval=FALSE}
+tg.1 <- 300
+sg.1 <- 500
+discretization.example.1 <- quantum.data(
+  time.data = gps.data.df$Fecha,
+  lng.data = gps.data.df$Longitud,
+  lat.data = gps.data.df$Latitud,
+  field.data = gps.data.df$`Velocidad Km/h`,
+  names.data = gps.data.df$Vehiculo,
+  time.gap = tg.1,
+  space.gap = sg.1
+)
+
+ui.1 <- fluidPage(
+  titlePanel("Mapa con Filtro de Tiempo"),
+  sidebarLayout(
+    fluidRow(
+      column(
+        width = 12,
+        wellPanel(
+          sliderInput(
+            "time_range",
+            "Selecciona el rango de tiempo:",
+            min = discretization.example.1$time.bin %>% min(),
+            max = discretization.example.1$time.bin %>% max(),
+            value = discretization.example.1$time.bin %>% range(),
+            step = tg.1,
+            animate = T,
+            width = "100%",
+            timezone = "+0000"
+          )
+        )
+      )
+    ),
+    fluidRow(
+      column(
+        width = 12,
+        leafletOutput("map", height = "600px")
+      )
+    )
+  )
+)
+
+server.1 <- function(input, output, options){
+  pal <- colorNumeric(
+    palette = c("#F00", "#FF0", "#0F0", "#0FF", "#00F", "#F0F"),
+    domain = discretization.example.1$compiled.field
+  )
+  sd <- discretization.example.1 %>% SharedData$new()
+  f.data <- reactive({
+    input$time_range %>% req()
+    discretization.example.1 %>%
+      filter(time.bin >= input$time_range[1] & time.bin <= input$time_range[2]) %>%
+      group_by(geometry, name) %>%
+      summarise(
+        field = compiled.field %>% mean(),
+        geometry = geometry %>% first(),
+        time.info = paste(time.bin %>% min() %>% format(., "%H:%M"), "-", time.bin %>% max() %>% format(., "%H:%M")),
+        date.info =  ifelse(time.bin %>% min() %>% format(., "%Y-%m-%d") == time.bin %>% max() %>% format(., "%Y-%m-%d"), time.bin %>% min() %>% format(., "%Y-%m-%d"), paste(time.bin %>% min() %>% format(., "%Y-%m-%d"), "-", time.bin %>% max() %>% format(., "%Y-%m-%d"))),
+        time.bin = time.bin %>% range(na.rm = T) %>% mean(na.rm = T),
+        space.bin = space.bin %>% first(),
+        name = name %>% first(),
+        .groups = 'drop'
+      )
+  })
+  output$map <- renderLeaflet({
+    leaflet() %>%
+      addTiles() %>%
+      addScaleBar(position = "bottomleft") %>%
+      setView(
+        lng = gps.data.df$Longitud %>% mean(na.rm = T),
+        lat = gps.data.df$Latitud %>% mean(na.rm = T),
+        zoom = 12
+      ) %>%
+      addLayersControl(
+        overlayGroups = discretization.example.1$name %>% levels(),
+        options = layersControlOptions(collapsed = F)
+      )
+  })
+  observe({
+    proxy <- leafletProxy("map") %>% clearShapes()
+    proxy %>%
+      addPolylines(
+        data = f.data(),
+        color = ~pal(field),
+        group = ~name,
+        popup = ~paste(
+          paste("Vehículo:", name),
+          paste("Fecha:", date.info),
+          paste("Hora:", time.info),
+          paste("Velocidad:", field %>% round(2), "km/h"),
+          sep = "<br>"
+        ),
+        opacity = 1
+      )
+  })
+}
+
+shinyApp(ui.1, server.1)
+```
+
 
 # Base de Datos
 
