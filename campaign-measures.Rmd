@@ -65,7 +65,7 @@ library(chilemapas)
 ```
 
 ```{r key.objects.campaign, include=FALSE}
-key.objects.campaign <- c("meters.per.degree.lat", "meters.per.degree.lng", "quantum.data", "waze.routes", "waze.routes.df", "climate.data.df", "gps.data.df", "speed.pistols.df", "police.type.accident", "police.type.vehicle")
+key.objects.campaign <- c("meters.per.degree.lat", "meters.per.degree.lng", "waze.routes", "waze.routes.df", "climate.data.df", "gps.data.df", "speed.pistols.df", "police.type.accident", "police.type.vehicle")
 
 sum.time <- function(dt.list){
   dt.list %>% sapply(., function(t){
@@ -275,6 +275,7 @@ gps.data.df <- gps.data %>% bind_rows()
 gps.data.df$IMEI <- gps.data.df$IMEI %>% as.factor()
 gps.data.df$Vehiculo <- gps.data.df$Vehiculo %>% as.factor()
 gps.data.df$Fecha <- paste(gps.data.df$Fecha, gps.data.df$Hora) %>% as.POSIXct(format = "%d-%m-%Y %H:%M:%S", tz = "America/Santiago")
+gps.data.df <- gps.data.df %>% select(-Hora)
 gps.data.df$`Duracion de la parada` <- str_match(gps.data.df$`Estatus movimiento`, "Duracion de la parada:\\s*(\\d+:\\d+:\\d+)")[,2] %>% str_replace_all(., " Hrs", "") %>% hms()
 gps.data.df$`Estatus movimiento`[grepl("Detenido.", gps.data.df$`Estatus movimiento`)] <- "Detenido."
 gps.data.df$`Estatus movimiento` <- gps.data.df$`Estatus movimiento` %>% as.factor()
@@ -289,6 +290,35 @@ gps.data.df$`Cargando bateria GPS` <- gps.data.df$`Cargando bateria GPS` %>% as.
 gps.data.df$`Nivel de bateria GPS` <- gps.data.df$`Nivel de bateria GPS` %>% as.factor()
 gps.data.df$Orientación.Punto.Cardinal <- gps.data.df$Orientación.Punto.Cardinal %>% as.factor()
 gps.data.df %>% summary()
+
+# Granularidad Temporal
+differences <- gps.data.df %>%
+  mutate(
+    prev.time = Fecha %>% lag(),
+    same.vh = (Vehiculo == (Vehiculo %>% lag(default = Vehiculo %>% first() - 1)))
+  ) %>%
+  mutate(
+    diff = if_else(same.vh, (Fecha - prev.time) %>% as.numeric(), NA_real_)
+  ) %>%
+  pull(diff)
+ggplot() +
+  geom_histogram(aes(x = differences)) +
+  scale_x_log10()
+
+# Granularidad Espacial
+distances <- gps.data.df %>%
+  mutate(
+    prev.x = Longitud %>% lag(),
+    prev.y = Latitud %>% lag(),
+    same.vh = (Vehiculo == (Vehiculo %>% lag(default = Vehiculo %>% first() - 1)))
+  ) %>%
+  mutate(
+    dist = if_else(same.vh, haversine.dist(Latitud, Longitud, prev.y, prev.x), NA_real_)
+  ) %>%
+  pull(dist)
+ggplot() +
+  geom_histogram(aes(x = distances)) +
+  scale_x_log10()
 ```
 
 ### Procesamiento y Normalización de Datos
