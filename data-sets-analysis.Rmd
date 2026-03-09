@@ -4844,12 +4844,50 @@ quantum.data <- function(
     })
     dt.segments$geometry <- list.lines %>% st_sfc(crs = 3857)
     sf.data <- dt.segments %>% st_sf()
-    grid <- sf.data %>% st_make_grid(cellsize = space.gap * c(1, street.angle.tolerance %>% sin()))
-    grid.sf <- st_sf(space.bin = 1:(grid %>% length()), geometry = grid)
-    sf.data <- st_intersection(sf.data, grid.sf) %>% 
+    #grid <- sf.data %>% st_make_grid(cellsize = space.gap * c(1, street.angle.tolerance %>% sin()))
+    #grid.sf <- st_sf(space.bin = 1:(grid %>% length()), geometry = grid)
+    #sf.data <- st_intersection(sf.data, grid.sf) %>% 
+      #st_collection_extract(type = "LINE") %>% 
+      #st_cast(to = "LINESTRING", warn = F)
+    #grid.polys <- st_geometry(grid.sf)[sf.data$space.bin]
+    lanes.unique <- sf.data %>%
+      as.data.frame() %>%
+      select(seg.lane, geom.street.3857) %>%
+      filter(!is.na(seg.lane)) %>%
+      distinct(seg.lane, .keep_all = T) %>%
+      #st_as_sf(crs = 3857) %>%
+      mutate(l = geom.street.3857 %>% st_length() %>% as.numeric())
+    grid.sf <- lanes.unique %>%
+      mutate(cuts = purrr::map(l, ~{
+        if(.x <= space.gap){
+          data.frame(start.f = 0, end.f = 1)
+        } else {
+          fracs <- seq(0, 1, by = space.gap / .x)
+          if(fracs[fracs %>% length()] != 1) fracs <- c(fracs, 1)
+          data.frame(start.f = fracs[-length(fracs)], end.f = fracs[-1])
+        }
+      })) %>%
+      unnest(cuts) %>%
+      mutate(
+        geometry = purrr::pmap(
+          list(geom.street.3857, start.f, end.f),
+          function(geom, s, e){
+            if(s == 0 & e == 1) return(geom)
+            lwgeom::st_linesubstring(geom, s, e)
+          }
+        ) %>% st_sfc(crs = 3857),
+        space.bin = row_number()
+      ) %>%
+      rename(seg.lane.grid = seg.lane) %>%
+      select(space.bin, seg.lane.grid, geometry) %>%
+      st_as_sf(crs = 3857)
+    grid.polys.sf <- grid.sf %>% 
+      st_buffer(dist = 15, endCapStyle = "FLAT", joinStyle = "MITRE")
+    sf.data <- st_intersection(sf.data, grid.polys.sf) %>% 
+      filter(seg.lane == seg.lane.grid | is.na(seg.lane)) %>% 
       st_collection_extract(type = "LINE") %>% 
       st_cast(to = "LINESTRING", warn = F)
-    grid.polys <- st_geometry(grid.sf)[sf.data$space.bin]
+    grid.polys <- (grid.polys.sf %>% st_geometry())[match(sf.data$space.bin, grid.polys.sf$space.bin)]
     exact.geom.list <- purrr::map2(sf.data$geom.street.3857, grid.polys, function(line, poly) {
       res <- st_intersection(line, poly) %>% suppressWarnings()
       if(res %>% length() == 0) return(NULL)
@@ -4864,7 +4902,6 @@ quantum.data <- function(
     sf.data$geometry <- exact.geom.list[valid.idx] %>% st_sfc(crs = 3857)
     sf.data$weight <- sf.data %>% st_length() %>% as.numeric()
     dt.f <- sf.data %>% as.data.table()
-    group.cols <- intersect(c("name", "time.bin", "space.bin", "seg.street"), dt.f %>% names())
     group.cols <- intersect(c("name", "time.bin", "space.bin", "seg.lane", "seg.street"), dt.f %>% names())
     compiled.data <- dt.f[, {
       c.field <- compile.function(X = field, W = weight)
@@ -5138,72 +5175,19 @@ shinyApp(ui, server)
 tg.1 <- 300
 sg.1 <- 100
 
-line.to.polygon <- function(geometry, thickness = 2) {
-  math.polygon <- function(coords, radius) {
-    x <- coords[, "X"]
-    y <- coords[, "Y"]
-    if(x %>% length() < 2) return(st_polygon())
-    dx <- x %>% diff()
-    dy <- y %>% diff()
-    l <- sqrt(dx^2 + dy^2)
-    l[l == 0] <- 1e-8
-    nx <- -dy / l
-    ny <- dx / l
-    if(nx %>% length() == 1) {
-      nx.avg <- c(nx, nx)
-      ny.avg <- c(ny, ny)
-    } else {
-      nx.avg <- c(nx[1], (nx[-1] + nx[-length(nx)]) / 2, nx[length(nx)])
-      ny.avg <- c(ny[1], (ny[-1] + ny[-length(ny)]) / 2, ny[length(ny)])
-    }
-    l.avg <- sqrt(nx.avg ^ 2 + ny.avg ^ 2)
-    l.avg[l.avg == 0] <- 1e-8
-    nx.avg <- nx.avg / l.avg
-    ny.avg <- ny.avg / l.avg
-    x.right <- x - radius * nx.avg
-    y.right <- y - radius * ny.avg
-    x.left <- rev(x + radius * nx.avg)
-    y.left <- rev(y + radius * ny.avg)
-    
-    poly.coords <- cbind(
-      c(x.right, x.left, x.right[1]),
-      c(y.right, y.left, y.right[1])
-    )
-    return(list(poly.coords) %>% st_polygon())
-  }
-  is.sfg <- inherits(geometry, "sfg")
-  if (is.sfg) geometry <- geometry %>% st_sfc(crs = 4326)
-  orig.crs <- geometry %>% st_crs()
-  if (orig.crs %>% is.na()) {
-    orig.crs <- st_crs(4326)
-    geometry <- geometry %>% st_set_crs(4326)
-  }
-  geom.m <- geometry %>% st_transform(crs = 3857)
-  poly.list <- geom.m %>% st_geometry() %>% lapply(function(g) {
-    if (inherits(g, "LINESTRING")) {
-      return(math.polygon(g %>% st_coordinates(), thickness / 2))
-    } else if (inherits(g, "MULTILINESTRING")) {
-      parts <- g %>% st_sfc() %>% st_cast(to = "LINESTRING") %>% lapply(function(part) {
-        math.polygon(part %>% st_coordinates(), thickness / 2)
-      })
-      return(parts %>% lapply(unclass) %>% st_multipolygon())
-    } else if (inherits(g, "GEOMETRYCOLLECTION")) {
-      parts <- g %>% st_collection_extract("LINESTRING") %>% st_sfc() %>% st_cast(to = "LINESTRING") %>% lapply(function(part) {
-        math.polygon(part %>% st_coordinates(), thickness / 2)
-      })
-      if(length(parts) > 0) return(parts %>% lapply(unclass) %>% st_multipolygon())
-      else return(st_polygon())
-    } else {
-      return(st_polygon())
-    }
-  })
-  poly.sfc <- poly.list %>% st_sfc(crs = 3857)
-  poly.final <- poly.sfc %>% st_transform(crs = orig.crs)
-  if (is.sfg) return(poly.final[[1]])
-  return(poly.final)
+line.to.polygon <- function(line, thickness = 2) {
+  #if(!inherits(line, c("sf, sfc"))) stop("The input 'line' must be an sf or sfc object (LINESTRING or MULTILINESTRING)")
+  projected.line <- line %>% st_transform(crs = 3857)
+  distance <- thickness / 2
+  polygon <- projected.line %>% st_buffer(
+    dist = distance,
+    endCapStyle = "FLAT",
+    joinStyle = "MITRE"
+  ) %>% st_transform(crs = 4326)
+  return(polygon)
 }
 
-get.gps.street <- get.street(
+gps.streets <- get.street(
   lng.data = gps.data.df$Longitud,
   lat.data = gps.data.df$Latitud
 )
@@ -5217,10 +5201,6 @@ discretization.example.1 <- quantum.data(
   street.aligned = T,
   time.gap = tg.1,
   space.gap = sg.1
-)
-
-discretization.polygon <- discretization.example.1 %>% mutate(
-  geometry = geometry %>% line.to.polygon(thickness = 50)
 )
 
 base.grid <- discretization.example.1 %>%
@@ -5271,6 +5251,18 @@ server.1 <- function(input, output, options){
     palette = c("#F00", "#FF0", "#0F0", "#0FF", "#00F", "#F0F"),
     domain = discretization.example.1$compiled.field
   )
+  f.points.centered <- reactive({
+    input$time.range %>% req()
+    (input$selected.vehicles %>% length() > 0) %>% req()
+    gps.streets %>% mutate(
+      Fecha = gps.data.df$Fecha,
+      Vehiculo = gps.data.df$Vehiculo
+    ) %>% filter(
+      Fecha >= input$time.range[1] &
+      Fecha <= input$time.range[2] &
+      Vehiculo %in% input$selected.vehicles
+    )
+  })
   f.points <- reactive({
     input$time.range %>% req()
     (input$selected.vehicles %>% length() > 0) %>% req()
@@ -5334,7 +5326,6 @@ server.1 <- function(input, output, options){
         group_by(lane.id) %>%
         mutate(next.geom = geometry %>% lead()) %>%
         ungroup()
-        
       bridged.geoms <- purrr::map2(interpolated.data$geometry, interpolated.data$next.geom, function(g1, g2) {
         if(g2 %>% is.null() || g2 %>% length() == 0) return(g1)
         c1 <- g1 %>% st_coordinates()
@@ -5356,9 +5347,6 @@ server.1 <- function(input, output, options){
     } else {
       final.data <- unnamed.data
     }
-    final.data <- final.data %>% mutate(
-      geometry = geometry %>% line.to.polygon(thickness = 20)
-    )
     return(final.data)
   })
   output$map <- renderLeaflet({
@@ -5370,40 +5358,57 @@ server.1 <- function(input, output, options){
         lat = gps.data.df$Latitud %>% mean(na.rm = T),
         zoom = 12
       ) %>% addLayersControl(
-        overlayGroups = c("Calles", "Puntos")
+        overlayGroups = c("Calles", "Puntos Originales", "Puntos Centrados", "Celdas")
       )
   })
   observe({
     proxy <- leafletProxy("map") %>% clearShapes()
     updated.data <- f.data()
     filtered.gps.data.df <- f.points()
+    centered.points <- f.points.centered()
     if(updated.data %>% nrow() > 0){
+      updated.polygons <- updated.data %>% 
+        mutate(geometry = geometry %>% line.to.polygon(thickness = 5)) %>% 
+        st_as_sf()
       proxy %>%
-        addPolygons(
+        addPolylines(
           data = updated.data,
-          fillColor = ~field %>% pal(),
+          color = ~field %>% pal(),
           group = "Calles",
           popup = ~paste(
             paste("Vehículos:", vehicles.involved),
-            paste("Calle:", ifelse(is.na(street.name), "Sin Nombre", street.name)),
+            paste("Calle:", ifelse(is.na(street.name), NA, street.name)),
             paste("ID Carril:", lane.id),
             paste("Fecha:", date.info),
             paste("Hora:", time.info),
             paste("Velocidad:", field %>% round(2), "km/h"),
             sep = "<br>"
           ),
-          fillOpacity = 0.8,
-          stroke = F
+          opacity = 0.8
+        ) %>%
+        addPolygons(
+          data = updated.polygons,
+          fill = F,
+          color = "black",
+          group = "Celdas"
         ) %>% 
         addCircles(
           data = filtered.gps.data.df,
-          group = "Puntos",
-          fillColor = "black",
+          group = "Puntos Originales",
+          color = "red",
           opacity = 1,
-          stroke = F,
           lng = ~Longitud,
           lat = ~Latitud,
-          radius = 2
+          radius = 1
+        ) %>% 
+        addCircles(
+          data = centered.points,
+          group = "Puntos Centrados",
+          color = "darkgreen",
+          opacity = 1,
+          lng = ~lng.street,
+          lat = ~lat.street,
+          radius = 1
         )
     }
   })
