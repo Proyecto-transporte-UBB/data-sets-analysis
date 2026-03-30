@@ -30,6 +30,7 @@ library(dplyr)
 library(furrr)
 library(future)
 library(future.apply)
+library(geos)
 library(ggcorrplot)
 library(ggmap)
 library(ggplot2)
@@ -65,6 +66,7 @@ library(tidytransit)
 library(tidyverse)
 library(tidyxl)
 library(viridis)
+library(zoo)
 library(chilemapas)
 ```
 
@@ -4642,92 +4644,65 @@ waze.routes.alerts %>% ggplot() +
 
 ```{r quantum.data, include=FALSE}
 chile.streets <- st_read("~/GitHub/data-sets-analysis/shapefiles/Chile/gis_osm_roads_free_1.shp")
-
-manual.offset.curve <- function(geometry, offset){
-  coords <- geometry %>% st_coordinates()
-  x <- coords[, "X"]
-  y <- coords[, "Y"]
-  if(coords %>% nrow() < 2) return(geometry[[1]])
-  dx <- x %>% diff()
-  dy <- y %>% diff()
-  l <- (dx ^ 2 + dy ^ 2) %>% sqrt()
-  l[l == 0] <- 1e-8
-  nx <- dy / l
-  ny <- -dx / l
-  if(nx %>% length() == 1){
-    nx.avg <- c(nx, nx)
-    ny.avg <- c(ny, ny)
-  } else {
-    nx.avg <- c(nx[1], (nx[-1] + nx[-(nx %>% length())]) / 2, nx[nx %>% length()])
-    ny.avg <- c(ny[1], (ny[-1] + ny[-(ny %>% length())]) / 2, ny[ny %>% length()])
-  }
-  l.avg <- (nx.avg ^ 2 + ny.avg ^ 2) %>% sqrt()
-  l.avg[l.avg == 0] <- 1e-8
-  nx.avg <- nx.avg / l.avg
-  ny.avg <- ny.avg / l.avg
-  x.new <- x + offset * nx.avg
-  y.new <- y + offset * ny.avg
-  cbind(x.new, y.new) %>% st_linestring()
-}
+chile.streets$name[chile.streets$name == "Avenida Los Carrera Poniente"] <- "Avenida Los Carrera"
+chile.streets$osm_id <- chile.streets$osm_id %>% as.numeric()
+chile.streets$fclass <- chile.streets$fclass %>% as.factor()
+chile.streets$name <- chile.streets$name %>% as.factor()
+chile.streets$ref <- chile.streets$ref %>% as.factor()
+chile.streets$oneway <- chile.streets$oneway %>% as.factor()
+chile.streets$bridge <- chile.streets$bridge %>% as.factor()
+chile.streets$tunnel <- chile.streets$tunnel %>% as.factor()
 
 get.street <- function(
   lng.data = NA,
   lat.data = NA,
-  offset = 2.5,
   local.streets.map = chile.streets
 ){
-  points.df <- data.frame(
-    lng = lng.data,
-    lat = lat.data
-  )
+  points.df <- data.frame(lng = lng.data, lat = lat.data)
   points.wgs <- points.df %>% st_as_sf(coords = c("lng", "lat"), crs = 4326)
-  message("1. Getting Local Data...")
+  message("1. Searching for Local Streets...")
   sf::sf_use_s2(F)
   bbox.poly <- points.wgs %>% st_buffer(dist = 0.005) %>% st_bbox() %>% st_as_sfc()
-  streets <- local.streets.map[bbox.poly,] %>% suppressWarnings()
+  streets.local <- local.streets.map[bbox.poly,] %>% suppressWarnings()
   sf::sf_use_s2(T)
-  if(streets %>% nrow() == 0) stop("No Streets Found.")
+  if(streets.local %>% nrow() == 0) stop("No Streets Found.")
+  message("2. Consolidating Entire Streets...")
+  streets.m <- streets.local %>%
+    st_transform(crs = 3857)
+  streets.merged <- streets.m %>%
+    group_by(name) %>%
+    summarise(
+      geometry = geometry %>% st_combine(),
+      .groups = "drop"
+    ) %>%
+    mutate(geometry = geometry %>% geos::as_geos_geometry() %>% geos::geos_line_merge() %>% st_as_sfc()) %>%
+    st_set_crs(3857) %>%
+    suppressWarnings(st_cast("MULTILINESTRING")) %>%
+    suppressWarnings(st_cast("LINESTRING")) %>%
+    mutate(lane.id = paste(name, row_number(), sep = "_"))
   points.m <- points.wgs %>% st_transform(crs = 3857)
-  streets.m <- streets %>% st_transform(crs = 3857) %>% suppressWarnings(st_cast("LINESTRING"))
-  message("2. Processing Streets Directions...")
-  oneway <- streets.m$oneway %in% c("F", "T")
-  oneway.streets <- streets.m[oneway,]
-  two.ways.streets <- streets.m[!oneway,]
-  message("3. Calculating Bidirectional Lanes...")
-  if(two.ways.streets %>% nrow() > 0){
-    original.geoms <- two.ways.streets %>% st_geometry()
-    reverse.geoms <- original.geoms %>% st_reverse()
-    go.sfc <- original.geoms %>% future_map(.f = ~manual.offset.curve(.x, offset = offset), .progress = T) %>% st_sfc(crs = 3857)
-    back.sfc <- reverse.geoms %>% future_map(.f = ~manual.offset.curve(.x, offset = offset), .progress = T) %>% st_sfc(crs = 3857)
-    go <- two.ways.streets
-    st_geometry(go) <- go.sfc
-    back <- two.ways.streets
-    st_geometry(back) <- back.sfc
-    double.streets <- rbind(go, back)
-    final.streets <- rbind(oneway.streets, double.streets)
-  } else {
-    final.streets <- oneway.streets
-  }
-  final.streets$lane.id <- 1:(final.streets %>% nrow())
-  message("4. Calculating Distancies to the Points...")
-  near.indexes <- st_nearest_feature(points.m, final.streets)
-  near.lanes <- final.streets[near.indexes,]
-  geom.points <- points.m %>% st_geometry()
-  geom.streets <- near.lanes %>% st_geometry()
-  short.lines.list <- purrr::map2(geom.points, geom.streets, ~st_nearest_points(.x, .y)[[1]])
-  short.lines <- short.lines.list %>% st_sfc(crs = 3857)
-  all.points <- short.lines %>% st_cast(to = "POINT")
-  points.on.street.m <- all.points[seq(2, all.points %>% length(), by = 2)]
-  final.points.wgs <- points.on.street.m %>% st_transform(crs = 4326)
-  final.coords <- final.points.wgs %>% st_coordinates()
-  results <- points.df %>% mutate(
-    lng.street = final.coords[, "X"],
-    lat.street = final.coords[, "Y"],
-    street.name = ifelse(near.lanes$name %>% is.na(), NA, near.lanes$name),
-    lane.id = near.lanes$lane.id,
-    distance = st_distance(points.m, near.lanes, by_element = T) %>% as.numeric()
-  )
-  results$street.geom <- near.lanes %>% st_geometry() %>% st_transform(crs = 4326)
+  message("3. Matching attributes...")
+  near.indexes <- st_nearest_feature(points.m, streets.merged)
+  unique.geos.lines <- streets.merged %>% geos::as_geos_geometry()
+  geos.lines <- unique.geos.lines[near.indexes]
+  geos.pts <- points.m %>% geos::as_geos_geometry()
+  dist.along <- geos::geos_project(geos.lines, geos.pts)
+  snapped.geos <- geos::geos_interpolate(geos.lines, dist.along)
+  snapped.coords <- snapped.geos %>% 
+    st_as_sfc() %>% 
+    st_set_crs(3857) %>% 
+    st_transform(crs = 4326) %>% 
+    st_coordinates()
+  streets.merged.4326 <- streets.merged %>% st_transform(4326)
+  results <- points.df %>%
+    mutate(
+      lng.street = snapped.coords[, "X"],
+      lat.street = snapped.coords[, "Y"],
+      street.name = streets.merged$name[near.indexes] %>% as.factor(),
+      lane.id = streets.merged$lane.id[near.indexes],
+      dist.along.lane = dist.along
+    )
+  results$street.geom <- streets.merged.4326$geometry[near.indexes]
   message("Process Successfully Completed.")
   return(results)
 }
@@ -4741,8 +4716,6 @@ quantum.data <- function(
   names.data = NA,
   time.gap = 5,
   space.gap = 50,
-  street.aligned = T,
-  street.angle.tolerance = pi / 6,
   compile.function = function(X, W) X %>% weighted.mean(w = W, na.rm = T)
 ) {
   n.rows <- max(time.data %>% length(), lng.data %>% length(), geom.data %>% length(), na.rm = T)
@@ -4763,154 +4736,64 @@ quantum.data <- function(
       lng.data = lng.data,
       lat.data = lat.data
     )
-    dt$lng.street <- centered.points$lng.street
-    dt$lat.street <- centered.points$lat.street
-    dt$street.name <- centered.points$street.name
-    dt$lane.id <- centered.points$lane.id
-    dt$street.geom <- centered.points$street.geom
-    dt <- dt[!is.na(lng.street) & !is.na(lat.street)]
-    dt.f <- dt %>% as.data.table()
-    setorder(dt.f, name, id)
-    sf.points <- dt.f %>%
+    big.line <- centered.points %>%
+      ungroup() %>%
+      st_drop_geometry() %>%
+      st_as_sf(sf_column_name = "street.geom") %>%
+      distinct(street.name, lane.id, .keep_all = T) %>%
+      select(street.name, lane.id) %>%
+      st_collection_extract("LINE") %>%
+      st_cast("MULTILINESTRING", warn = F) %>%
+      st_cast("LINESTRING", warn = F) %>%
+      mutate(fragment.id = paste(lane.id, row_number(), sep = "_"))
+    small.pieces <- big.line %>%
+      st_transform(crs = 3857) %>%
+      mutate(
+        len = street.geom %>% st_length() %>% as.numeric(),
+        cuts = len %>% purrr::map(.f = function(l){
+          if(l <= space.gap) return(
+            data.frame(
+              start.frac = 0,
+              end.frac = 1
+            )
+          )
+          dists <- seq(0, l, by = space.gap)
+          if(dists[dists %>% length()] < l) dists <- c(dists, l)
+          fracs <- dists / l
+          data.frame(
+            start.frac = fracs[-length(fracs)],
+            end.frac = fracs[-1]
+          )
+        })
+      ) %>%
+      tidyr::unnest(cuts) %>%
+      mutate(
+        small.geom = list(street.geom, start.frac, end.frac) %>% purrr::pmap(.f = function(g, s, e) lwgeom::st_linesubstring(g, s, e)) %>% st_sfc(crs = 3857)
+      ) %>%
+      st_drop_geometry() %>%
+      st_as_sf(sf_column_name = "small.geom") %>%
+      st_transform(crs = 4326) %>%
+      mutate(piece.id = paste(fragment.id, row_number(), sep = "_")) %>%
+      select(-len, -start.frac, -end.frac)
+    centered.points$field <- dt$field
+    centered.points$name <- dt$name
+    centered.points$time.bin <- dt$time.bin
+    centered.points$weight <- 1
+    pts.sf <- centered.points %>%
       st_as_sf(coords = c("lng.street", "lat.street"), crs = 4326) %>%
       st_transform(crs = 3857)
-    coords <- sf.points %>% st_coordinates()
-    dt.f$X <- coords[, "X"]
-    dt.f$Y <- coords[, "Y"]
-    dt.f$geom.street.3857 <- sf.points$street.geom %>% st_geometry() %>% st_transform(3857)
-    dt.f[, next.X := X %>% shift(type = "lead"), by = name]
-    dt.f[, next.Y := Y %>% shift(type = "lead"), by = name]
-    dt.f[, next.street := street.name %>% shift(type = "lead"), by = name]
-    dt.f[, next.lane := lane.id %>% shift(type = "lead"), by = name]
-    dt.f[, next.idx := .I %>% shift(type = "lead"), by = name]
-    dt.lines <- dt.f[!is.na(next.X)]
-    dt.lines <- dt.lines[(X != next.X) | (Y != next.Y)]
-    if(dt.lines %>% nrow() == 0) stop("No Lines Generated.")
-    dt.lines$next.geom.street <- dt.f$geom.street.3857[dt.lines$next.idx]
-    dt.same <- dt.lines[lane.id == next.lane | lane.id %>% is.na() | next.lane %>% is.na()]
-    dt.same[, final.X := next.X]
-    dt.same[, final.Y := next.Y]
-    dt.same[, seg.lane := lane.id]
-    dt.same[, seg.street := street.name]
-    dt.diff <- dt.lines[lane.id != next.lane & !is.na(lane.id) & !is.na(next.lane)]
-    if(dt.diff %>% nrow() > 0){
-      int.pts <- purrr::map2(dt.diff$geom.street.3857, dt.diff$next.geom.street, function(g1, g2) {
-        res <- st_intersection(g1, g2) %>% suppressWarnings()
-        if(res %>% length() == 0 || res %>% st_is_empty()) return(c(NA, NA))
-        if(inherits(res, "MULTIPOINT")) res <- st_cast(res, "POINT")[[1]]
-        if(inherits(res, "POINT")) return(st_coordinates(res)[1, c("X", "Y")])
-        return(c(NA, NA))
-      })
-      int.mat <- do.call(rbind, int.pts)
-      dt.diff$int.X <- int.mat[, 1]
-      dt.diff$int.Y <- int.mat[, 2]
-      dt.diff.valid <- dt.diff[!is.na(int.X)]
-      dt.diff.invalid <- dt.diff[int.X %>% is.na()]
-      if(dt.diff.invalid %>% nrow() > 0){
-        dt.diff.invalid[, final.X := next.X]
-        dt.diff.invalid[, final.Y := next.Y]
-        dt.diff.invalid[, seg.lane := lane.id]
-        dt.diff.invalid[, seg.street := street.name]
-      }
-      if(dt.diff.valid %>% nrow() > 0){
-        part1 <- dt.diff.valid %>% copy()
-        part1[, final.X := int.X]
-        part1[, final.Y := int.Y]
-        part1[, seg.lane := lane.id]
-        part1[, seg.street := street.name]
-        
-        part2 <- dt.diff.valid %>% copy()
-        part2[, X := int.X]
-        part2[, Y := int.Y]
-        part2[, final.X := next.X]
-        part2[, final.Y := next.Y]
-        part2[, seg.lane := next.lane]
-        part2[, seg.street := next.street]
-        part2[, geom.street.3857 := next.geom.street]
-        dt.diff.valid.expanded <- rbind(part1, part2)
-      } else {
-        dt.diff.valid.expanded <- data.table()
-      }
-      dt.segments <- rbind(
-        dt.same[, .(id, name, time.bin, field, X, Y, final.X, final.Y, seg.lane, seg.street, geom.street.3857)], 
-        dt.diff.invalid[, .(id, name, time.bin, field, X, Y, final.X, final.Y, seg.lane, seg.street, geom.street.3857)],
-        dt.diff.valid.expanded[, .(id, name, time.bin, field, X, Y, final.X, final.Y, seg.lane, seg.street, geom.street.3857)],
-        fill = T)
-    } else {
-      dt.segments <- dt.same[, .(id, name, time.bin, field, X, Y, final.X, final.Y, seg.lane, seg.street, geom.street.3857)]
-    }
-    list.lines <- lapply(1:(dt.segments %>% nrow()), function(i) {
-      c(dt.segments$X[i], dt.segments$final.X[i], dt.segments$Y[i], dt.segments$final.Y[i]) %>% matrix(ncol = 2) %>% st_linestring()
-    })
-    dt.segments$geometry <- list.lines %>% st_sfc(crs = 3857)
-    sf.data <- dt.segments %>% st_sf()
-    #grid <- sf.data %>% st_make_grid(cellsize = space.gap * c(1, street.angle.tolerance %>% sin()))
-    #grid.sf <- st_sf(space.bin = 1:(grid %>% length()), geometry = grid)
-    #sf.data <- st_intersection(sf.data, grid.sf) %>% 
-      #st_collection_extract(type = "LINE") %>% 
-      #st_cast(to = "LINESTRING", warn = F)
-    #grid.polys <- st_geometry(grid.sf)[sf.data$space.bin]
-    lanes.unique <- sf.data %>%
-      as.data.frame() %>%
-      select(seg.lane, geom.street.3857) %>%
-      filter(!is.na(seg.lane)) %>%
-      distinct(seg.lane, .keep_all = T) %>%
-      #st_as_sf(crs = 3857) %>%
-      mutate(l = geom.street.3857 %>% st_length() %>% as.numeric())
-    grid.sf <- lanes.unique %>%
-      mutate(cuts = purrr::map(l, ~{
-        if(.x <= space.gap){
-          data.frame(start.f = 0, end.f = 1)
-        } else {
-          fracs <- seq(0, 1, by = space.gap / .x)
-          if(fracs[fracs %>% length()] != 1) fracs <- c(fracs, 1)
-          data.frame(start.f = fracs[-length(fracs)], end.f = fracs[-1])
-        }
-      })) %>%
-      unnest(cuts) %>%
-      mutate(
-        geometry = purrr::pmap(
-          list(geom.street.3857, start.f, end.f),
-          function(geom, s, e){
-            if(s == 0 & e == 1) return(geom)
-            lwgeom::st_linesubstring(geom, s, e)
-          }
-        ) %>% st_sfc(crs = 3857),
-        space.bin = row_number()
-      ) %>%
-      rename(seg.lane.grid = seg.lane) %>%
-      select(space.bin, seg.lane.grid, geometry) %>%
-      st_as_sf(crs = 3857)
-    grid.polys.sf <- grid.sf %>% 
-      st_buffer(dist = 15, endCapStyle = "FLAT", joinStyle = "MITRE")
-    sf.data <- st_intersection(sf.data, grid.polys.sf) %>% 
-      filter(seg.lane == seg.lane.grid | is.na(seg.lane)) %>% 
-      st_collection_extract(type = "LINE") %>% 
-      st_cast(to = "LINESTRING", warn = F)
-    grid.polys <- (grid.polys.sf %>% st_geometry())[match(sf.data$space.bin, grid.polys.sf$space.bin)]
-    exact.geom.list <- purrr::map2(sf.data$geom.street.3857, grid.polys, function(line, poly) {
-      res <- st_intersection(line, poly) %>% suppressWarnings()
-      if(res %>% length() == 0) return(NULL)
-      res.sfc <- res %>% st_sfc(crs = 3857)
-      res.lines <- res.sfc %>% st_collection_extract("LINE") %>% suppressWarnings()
-      if(length(res.lines) == 0) return(NULL)
-      res.cast <- res.lines %>% st_cast("LINESTRING") %>% suppressWarnings()
-      return(res.cast[[1]])
-    })
-    valid.idx <- !sapply(exact.geom.list, is.null)
-    sf.data <- sf.data[valid.idx, ]
-    sf.data$geometry <- exact.geom.list[valid.idx] %>% st_sfc(crs = 3857)
-    sf.data$weight <- sf.data %>% st_length() %>% as.numeric()
-    dt.f <- sf.data %>% as.data.table()
-    group.cols <- intersect(c("name", "time.bin", "space.bin", "seg.lane", "seg.street"), dt.f %>% names())
-    compiled.data <- dt.f[, {
+    sp.3857 <- small.pieces %>% st_transform(crs = 3857)
+    near.idx <- st_nearest_feature(pts.sf, sp.3857)
+    pts.sf$space.bin <- sp.3857$piece.id[near.idx]
+    geom.list <- st_geometry(sp.3857)
+    names(geom.list) <- sp.3857$piece.id
+    dt.p <- pts.sf %>% as.data.table()
+    group.cols <- intersect(c("name", "time.bin", "space.bin"), dt.p %>% names())
+    compiled.data <- dt.p[, {
       c.field <- compile.function(X = field, W = weight)
-      geom.comb <- geometry %>% st_combine()
-      new.geom <- (geom.comb %>% st_union() %>% st_line_merge())[[1]]
-      .(compiled.field = c.field, angle.rad = NA, geometry = list(new.geom))
+      piece.geom <- geom.list[[.BY$space.bin]]
+      .(compiled.field = c.field, geometry = list(piece.geom))
     }, by = group.cols]
-    setnames(compiled.data, "seg.street", "street.name")
-    setnames(compiled.data, "seg.lane", "lane.id")
   } else if (is.line.data){
     sf.data <- dt %>% st_sf(geometry = geom.data)
     if(sf.data %>% st_crs() %>% is.na()) st_crs(sf.data) <- 4326
@@ -4925,7 +4808,7 @@ quantum.data <- function(
       c.field <- compile.function(X = field, W = weight)
       geom.comb <- st_combine(geometry)
       new.geom <- (geom.comb %>% st_union() %>% st_line_merge())[[1]]
-      .(compiled.field = c.field, angle.rad = NA, geometry = list(new.geom))
+      .(compiled.field = c.field, geometry = list(new.geom))
     }, by = group.cols]
   } else {
     stop("You must provide 'lng.data' and 'lat.data' or 'geom.data'.")
@@ -4933,117 +4816,139 @@ quantum.data <- function(
   compiled.data <- compiled.data[!sapply(compiled.data$geometry, is.null)]
   compiled.data$name <- compiled.data$name %>% as.factor()
   compiled.data$geometry <- compiled.data$geometry %>% st_sfc(crs = 3857)
+  compiled.data$lenght <- compiled.data$geometry %>% st_length()
   return(compiled.data %>% st_sf() %>% st_transform(crs = 4326))
 }
 ```
 
 ## Diagrama de Flujo
 
-[Ver Diagrama de Flujo](https://mermaid.live/edit#pako:eNqFVV1PIzcU_SuWpdWCFAYICYRRSMVCd1upuyCSvuyEB8_4ZmLqsae2ByWL-DF97EOf-hP4Y722Z5JAt-o8gD-uz7k-9_jmiRaaA01paVi9JLPruSL4TR0zbi_7WYlC6JT83jDlmirhzLH7fXJwMCG45bIrA8wQv5o4lksghVZ-qi3hQEA5wzi7j5Dx77t35BocmEooVoiXv5UPvDECY-M8hnn0SGMvpSgV8CfrDIBLWJySiwsy--G5je6C8AiZvvwVTn4C9xMwLlSZ_SJZhXkWTBaNZA6SFmsZ98e5OZyMxeRXy8hNDWoadj-zmtTMMIKMyl_T300yjyJhfCgm998h_6ID91cwuiOfgiMtEbkgR2_VuNJqIcrGbNX4IJSN29srBNQYml3FaxiC4iZOSzBMFUDWZJ2UrE4qL69taXYS2YGIe3EclmeiAqRt6-lwluRCkZxZxjXWMS4h-tvsf1zVTNmQ-ZrMMBG70KZq77J39fKHT1WTWnv1OSM6t2Ae4_5-RGm5Qx4tnFbZnI7zyQ466nIdfLXHXQJ-nQPfHx_mkzl9lZRt8mjlOb01ugDLKm-umMNtg6M5jZH-48JA4ZCQzD5sVzdphKQQ5iEGZThc4zCYQRsOCu9kyafbKWEEdTe6091_23MB5k47FkD8IAiQkk0pV-hrjTXyRWQF4tjOlJet--ABbGfBkPXGL9_xpP86vkDuPZVtHp4hWF1LwNaYCJMInK96JF8HzqLJBRgvtVcMJNbsAZzeQfZgbQ94RJbsY6NiMkI9Jka7nXs9vvxpnMAqkPr4oB4EArTTrnql1LnPYYcg4gaKm0cwktVb03uZhGs4eS9Bvcf7S2KhrHyJAzr3XUd7XYLh8KItMCj-xryXpYFyt-u0ZLF9GN3U_v1iVIN9IKjRvYweFiz8Wydbgn_5Dx-Y1VLw7jncgW2k2_9__3Xc7ZOtaq9wdllLUQTrVbWQkCxw0R_tnIJ-q4AL73R8HMa_XJ9z0OmNNzrMSICKgfECb1UugoqC-7aS60aFBpLrVStx8BzITW8PmBuYgPpFG7fseuAG93XjTRaYcqJ85H8Wacq8gnG6ixlIPqKZ5RRXs5vgp9dVwtxXO_XZBMdWo_hehkspuUN3G_X6d8xgqSrkvd-nPfxpFJymzjTQoxW-IOan9MmjzqlbQgVzmuKQM_ObL-4znsEG8lXrqjuGBS2XNF0waXHW1EgF14KhU7Yh4Kt2hWI7mo5G_YBB0ye6ounx6DQZ9s_Pz4_OhoPT0_PBqEfXND04Oz5Ozkf94eDspN8_weXnHv0WaE-S0Wg0OOofnw2PhoP-ybD__A-oeqIJ)
+[Ver Diagrama de Flujo](https://mermaid.live/edit#pako:eNq1Vk1v4zYQ_SuEDs0u4DU2_kpWaLdInWRRwPUamxQF6hgBLY1lNhSpUtQ22SA_pscectpbLwXqP9ZHUrLlINue6kNEajjvzQzfjHIfJTqlKI4yw4s1uzy9Ugy_C8uNfTH_XolE6Jj9WnFlq7ybcssXL9mrV28ZTPYU2_nYEDfMWbqWLyWxJS-Jfb00b5lIO2wlSOKheE6LgN14ephLkdN4TcnN_d9_nd2K0tauFu893bcPwWt7EG7sYvPovcdcJs4wd4tKIg7vtxQqoFQlV6kOLzNeLJ6BmmqPNK2k9EhbgG_Y9KR2aGj8SRf65V0REIK9cf6Sfe8VEr0UhWZpnSmMumyy3DvpwptVCuZwUqrMl4R9xSS3YekYZ1ooOzM6obL8Asxk86iI1zgZ6XznPRGK_t15KlRWqVCnM2O0eTG_uHw_i8MmYJ5zabliidYmJcVTcGlPRNZsHiGagF1WyyC0wMhzQcjP1SIkGk65XzupeUa2W1pDZGM2hofBTRetypBCRVjOJf5-FFwyqRMuFz7i70TmUpyf3cKNDJN1KXJOgMRi8ydU3tQGkUis4S0JD8-FZBa7wGo8j33hKGeCEOR8rA2apvFERKUzdgtvbYGbTLN88_utyDUrC560lelbb4fpOX7gNln7apTz0l4jdoPAr1fEbWUoZielyBSvryFBsKEyDFXw3F2ROj6XjEm40i2qFnRIh-xPJLK1ndn5Wem7GU51lK4n7thv3o7mOGyHvPMLbanzQkgCyklmqsJdFnTiRkBn26CdFqwP_Y4VBnJJhSuidlLyIN1VpRIrtGrxbfE92zuozFHVdYAEdrpjyI0nUHpdf9m-FVciF19TElLpf6m07qNdKK3uqSehXv5COFyufBahcaGoRnZIEsXAVPVNsqiv-IbeGZG6-82xvs6wgdI9HtZO1uTK5aTtETFj3U07lTUSQgG5ylAwqyUZrhLau-nAUI9uS6akxDaconmBqEAbhCzbI8Ol4vsCwxwPL-Q6shbLHvC-oibqeUWVlKH_Am6jg6QZ5luxIUZJKrPr50Q3UW3Rgeh_FV3N5kQHKgRWKZzDSHYxQgzXOZkMbRmmYlW6i34qSgsJyM3nDGMnh7Loqf6CokNWkrhyE3lnafLdt2w1ey4Ul-ITxLL5rFrhN8fnZ1LkwgVlKMMH1-jWHbeCnP44mQR5nmuTc3uOPtIGY059JGOFYQeutgeMs2Bplart0Mhg_OFijka5gzpAzRn2rH88PArcuC7M780f1vhRXBhKRLk3dgPE9qs_8XLYffcTLatccXbgdLK2BwGWO2AXay3YXXa4tZVw0_Jp7Xfgnut9ZYsK_wl9QE8btdfeK1fo7ffHBTfo90aLl1Encv0bxdZU1Imgh5y7bXTvGK4iu6acrqIYy5Sbm6voSj3Ap-DqZ63zxs3oKltH8YrLEruqwPeaTgXHHefbtwZRkxlrzPsoPhqNPEgU30e3UTzod4-Hh6PR60F_eNg_6vU60V0U97qDN296w_7gcNQbHA8fOtEnzznovu73hoeD0dEQhuFg8PAPEj9poQ)
 
 ```{mermaid}
 graph TD
-    Start([Inicio: quantum.data]) --> Init[Crear data.table con datos de entrada]
-    
-    %% Determinación de Orientación
-    Init --> IsAligned{street.aligned == T?}
-    IsAligned -- Sí --> GetHeading[Llamar calculate.street.heading<br/><i>Usa OpenStreetMap para alinear con la calle</i>]
-    IsAligned -- No --> ZeroHeading[Set heading = 0]
-    
-    %% Configuración de Bins
-    GetHeading --> Config[Calcular rad.tolerance y y.gap.meters]
-    ZeroHeading --> Config
-    Config --> TimeBin[Crear time.bin basado en time.gap]
-    
-    %% Expansión y Transformación (Cálculo por cada observación)
-    TimeBin --> Expansion["<b>Expansión de Datos (dt.expanded)</b>"]
-    
-    subgraph "Procesamiento por Punto"
-        direction TB
-        Expansion --> Projection[Proyectar coordenadas GPS a metros]
-        Projection --> Rotation[Rotación: Calcular x.along y y.across<br/><i>Alinear ejes con la dirección de la calle</i>]
-        Rotation --> Bins[Determinar bins espaciales bx, by<br/>cubiertos por el objeto]
-        Bins --> InvRot[Función inv.rot: Calcular vértices p1-p4<br/>en coordenadas globales]
-        InvRot --> Overlap[Calcular longitud 'len' del segmento<br/>dentro de cada bin]
+    Start([Inicio: quantum.data]) --> InitData[Crear data.table base <br> id, field, name]
+    InitData --> TimeCheck{¿Existe <br> time.data?}
+    TimeCheck -- Sí --> CalcTime[Calcular time.bin <br> usando time.gap]
+    TimeCheck -- No --> NullTime[time.bin = NA]
+    CalcTime --> DataTypeCheck
+    NullTime --> DataTypeCheck
+    DataTypeCheck{¿Tipo de <br> Datos?}
+    DataTypeCheck -- Puntos <br> lng.data & lat.data --> PointProcess
+    DataTypeCheck -- Líneas <br> geom.data --> LineProcess
+    DataTypeCheck -- Ninguno --> Error([STOP: Error <br> Faltan coordenadas o geometría])
+    subgraph Procesamiento de Puntos
+        PointProcess[get.street: Centrar puntos <br> en la malla vial local] --> BigLine[Extraer líneas maestras únicas <br> de las calles centradas]
+        BigLine --> SmallPieces[Cortar calles en small.pieces <br> de largo máximo space.gap]
+        SmallPieces --> MatchPoints[st_nearest_feature: Asignar <br> cada punto al piece.id más cercano]
+        MatchPoints --> SetWeightPt[Establecer space.bin y weight = 1]
+        SetWeightPt --> CompilePt[Agrupar por name, time.bin, space.bin <br> y promediar con compile.function]
+        CompilePt --> GeomPt[Asignar la geometría intacta <br> del small.piece al grupo]
     end
-    
-    %% Agregación
-    Overlap --> Grouping[Agrupar por time.bin, x.bin, y.bin]
-    
-    subgraph "Consolidación (Result)"
-        direction TB
-        Grouping --> CompFunc[Aplicar compile.function<br/><i>Promedio ponderado por 'len'</i>]
-        CompFunc --> CenterCalc[Calcular centroide y bounding box<br/>de la celda]
-        CenterCalc --> NorthHeading[Calcular street.heading.from.north]
+    subgraph Procesamiento de Líneas
+        LineProcess[Crear objeto sf con <br> las líneas proporcionadas] --> MakeGrid[st_make_grid: Crear grilla espacial <br> basada en space.gap y angle.tolerance]
+        MakeGrid --> IntersectGrid[st_intersection: Cortar líneas <br> con las celdas de la grilla]
+        IntersectGrid --> SetWeightLn[Establecer space.bin según celda <br> y calcular weight = st_length]
+        SetWeightLn --> CompileLn[Agrupar por name, time.bin, space.bin <br> y promediar con compile.function]
+        CompileLn --> GeomLn[st_union & st_line_merge: <br> Fusionar la geometría topológicamente]
     end
-    
-    %% Salida
-    NorthHeading --> FinalSort[Ordenar por time.bin y x.bin]
-    FinalSort --> End([Fin: Retornar data.table resumida])
+    GeomPt --> CleanData
+    GeomLn --> CleanData
+    subgraph Finalización
+        CleanData[Eliminar registros <br> con geometría NULL] --> FormatFactor[Convertir 'name' a Factor]
+        FormatFactor --> SetCRS[Proyectar a CRS 3857 <br> para métricas precisas]
+        SetCRS --> CalcLength[Calcular columna 'lenght' <br> a partir de la geometría unificada]
+    end
+    CalcLength --> Output([Retornar objeto sf final <br> en CRS 4326])
 ```
 
 El proceso de discretización busca transformar un conjunto de observaciones heterogéneas y continuas en una estructura de rejilla regular (teselado) espaciotemporal. Esto permite homogeneizar la información de tráfico para su análisis estadístico.
 
 ## Descripción Matemática
 
-Sea una observación $i$ definida por la tupla $(t_i, \lambda_i, \phi_i, v_i, \mathbf{B}_i)$, donde $t$ es el tiempo, $(\lambda, \phi)$ las coordenadas geográficas, $v$ la variable escalar de interés (ej. velocidad) y $\mathbf{B}$ el recuadro delimitador (bounding box) del evento.
+El algoritmo transforma un conjunto continuo de trayectorias y eventos en una matriz discreta espaciotemporal. Sea un conjunto de observaciones $O = \{o_1, o_2, ..., o_n\}$, donde cada observación $o_i$ está definida por una tupla $(t_i, p_i, v_i, e_i)$ que representa el tiempo, la posición espacial, la variable de interés (campo) y la entidad emisora (ej. vehículo). 
 
-### 1. Transformación de Coordenadas
+El objetivo es mapear cada observación a un "bin" espacio-temporal discreto $B_{j,k}$.
 
-Primero, se proyectan las coordenadas esféricas $(\lambda, \phi)$ a un plano euclidiano local $(x, y)$ en metros, utilizando el radio de curvatura terrestre según la latitud:
+### 1. Discretización Temporal
 
-$$
-x = \lambda \cdot R \cdot \cos(\phi), \quad y = \phi \cdot R
-$$
+El dominio del tiempo se particiona en intervalos regulares de tamaño $\Delta t$ (`time.gap`). A cada observación se le asigna un índice temporal $T_j$ mediante la función piso:
 
-Donde $R$ es la constante de conversión de grados a metros en el ecuador.
+$$T_j = \left\lfloor \frac{t_i}{\Delta t} \right\rfloor \cdot \Delta t$$
 
-### 2. Rotación al Eje de la Vía (Alineación)
+### 2. Discretización Espacial
 
-Para cada observación, se identifica el ángulo de orientación de la calle más cercana $\theta$. Se aplica una transformación lineal de rotación para obtener un sistema de coordenadas $(u, v)$ donde el eje $u$ es paralelo a la dirección de la vía y el eje $v$ es perpendicular a ella:
+La partición del espacio depende de la topología geométrica de entrada:
 
-$$
-\begin{pmatrix} u \\ v \end{pmatrix} = \begin{pmatrix} \cos\theta & \sin\theta \\ -\sin\theta & \cos\theta \end{pmatrix} \begin{pmatrix} x \\ y \end{pmatrix}
-$$
+- **Para datos puntuales (coordenadas):** Sea $S$ la red vial continua. Esta red se fragmenta en sub-segmentos $s_k$ tales que la longitud topológica de cada segmento cumple $L(s_k) \le \Delta s$ (`space.gap`). Cada punto $p_i$ se proyecta ortogonalmente a la coordenada más cercana en la red vial $\hat{p}_i \in S$, y luego se le asigna el contenedor espacial $s_k$ que minimiza la distancia espacial.
+- **Para datos lineales (geometrías):** Se superpone una malla regular bidimensional (Grid) $G$ sobre el área de estudio. Las dimensiones de cada celda $C_k \in G$ están escaladas por $\Delta s$ y deformadas verticalmente por un factor trigonométrico dependiente de la tolerancia angular $\theta$ (`street.angle.tolerance`): $C_{alto} = \Delta s \cdot \sin(\theta)$. Las líneas continuas se intersecan matemáticamente con los polígonos de $G$, dividiéndose en sub-segmentos $l_{i,k} = p_i \cap C_k$.
 
-### 3. Función de Discretización (Binning)
+### 3. Consolidación (Compilación)
 
-El espacio-tiempo se particiona en celdas uniformes. Una observación pertenece a una celda $C_{j,k,l}$ si:
+Una vez agrupadas las observaciones en los subconjuntos discretos $B_{j,k}$, se aplica una función matemática de agregación $F$ (por defecto, la media ponderada) sobre los valores $v_i$.
 
-- **Temporalmente**: $j = \lfloor \frac{t}{\Delta t} \rfloor$
-- **Longitudinalmente (en la vía)**: $k = \lfloor \frac{u}{\Delta s} \rfloor$
-- **Transversalmente**: $l = \lfloor \frac{v}{\Delta y} \rfloor$, donde $\Delta y$ es una tolerancia lateral derivada del ángulo de la vía.
+$$V_{j,k} = \frac{\sum_{o_i \in B_{j,k}} v_i \cdot w_i}{\sum_{o_i \in B_{j,k}} w_i}$$
+
+Donde $w_i$ es el peso matricial (para puntos $w_i = 1$; para líneas $w_i = L(l_{i,k})$).
 
 ## Parámetros de Entrada
 
-El algoritmo requiere la definición de los siguientes parámetros físicos y geométricos:
-
-- $\Delta t$ **(Time Gap)**: Resolución temporal del análisis (ej. 5 segundos). Determina el tamaño del intervalo en el que se agrupan los eventos cronológicamente.
-- $\Delta s$ **(Space Gap)**: Resolución espacial longitudinal (ej. 50 metros). Define la longitud de los segmentos en los que se divide la vía.
-- $\theta_{tol}$ **(Angle Tolerance)**: Tolerancia angular para la alineación. Define el margen de error aceptable para considerar que una observación pertenece al flujo de la calle analizada.
-- **Función de Agregación** ($f$): Operador matemático para consolidar múltiples valores en una celda. Por defecto, se utiliza la media ponderada por longitud:
-
-$$
-\bar{V}_{celda} = \frac{\sum (v_i \cdot L_i)}{\sum L_i}
-$$
-
-donde $L_i$ es la fracción del objeto que intersecta la celda espacial.
+- **`time.data`**: Vector con las marcas de tiempo de las observaciones (formato numérico o `POSIXct`).
+- **`lng.data` / `lat.data`**: Vectores numéricos con las coordenadas espaciales (longitud y latitud) en EPSG:4326. Obligatorio si se procesan datos de puntos.
+- **`geom.data`**: Vector de objetos geométricos (clase `sfc`). Obligatorio si se procesan datos espaciales pre-construidos (líneas o trayectorias).
+- **`field.data`**: Vector numérico que contiene la variable principal de estudio que será promediada o agrupada (ej. velocidad, aceleración, flujo).
+- **`names.data`**: Vector de caracteres o factores que identifica a los agentes que generaron los datos (ej. placas de vehículos, IDs de usuarios).
+- **`time.gap`**: Tamaño del intervalo temporal $\Delta t$ para la agrupación (escalado en la unidad subyacente de `time.data`, usualmente segundos).
+- **`space.gap`**: Tamaño objetivo $\Delta s$ (en metros) para la segmentación de la geometría espacial. Dicta el largo máximo de los segmentos discretos.
+- **`compile.function`**: Expresión o función personalizada que dicta cómo se agregan matemáticamente los datos dentro de un "bin". Por defecto, utiliza `weighted.mean(X, w = W, na.rm = T)`.
 
 ## Proceso de Discretización
 
-El flujo lógico para la transformación de los datos sigue estos pasos:
+La arquitectura del procesamiento opera mediante un flujo de trabajo bifurcado según la naturaleza geométrica de la información ingresada.
 
-1. **Enriquecimiento Geográfico**: Para cada punto, se consulta una base de datos cartográfica (OpenStreetMap) para obtener el vector director de la infraestructura vial más cercana.
-2. **Expansión de Objetos**: Si la observación representa un objeto con extensión física (no un punto puntual), el algoritmo proyecta su longitud sobre el eje de la vía. Si un objeto es más largo que el parámetro $\Delta s$, este se fragmenta matemáticamente para repartir su contribución entre múltiples celdas espaciales adyacentes.
-3. **Cálculo de Intersecciones**: Se calcula el peso $L$ (longitud de ocupación) para cada celda afectada. Esto garantiza que objetos grandes o que cruzan fronteras de celdas no sesguen el promedio.
-4. **Colapso Estadístico**: Se agrupan todas las contribuciones que caen en la misma terna de índices $(j, k, l)$ y se calcula la media ponderada de la variable objetivo.
-5. **Georeferenciación Inversa**: Los centroides de las celdas discretas en el plano $(u, v)$ se transforman de vuelta a coordenadas $(\lambda, \phi)$ para permitir su visualización en mapas y sistemas de información geográfica (SIG).
+### Fase 1: Inicialización y Temporalidad
+
+1. Se construye una estructura tabular base unificando campos de identificación, variables numéricas y el identificador de tiempo.
+2. Se normalizan todos los valores de tiempo ajustándolos a ventanas discretas cerradas definidas por el divisor `time.gap`.
+
+### Fase 2: Bifurcación Espacial
+
+El motor evalúa las variables declaradas y decide el método de extracción espacial:
+
+- **Ruta A: Procesamiento de Puntos (Map Matching & Substring)**
+  1.  **Alineación (Snapping):** Llama a la sub-función `get.street` que busca la malla vial de OpenStreetMap local, consolida los trazos, y proyecta las coordenadas originales hacia el eje de la calle más cercana.
+  2.  **Extracción Maestra:** Obtiene las líneas únicas de las calles consolidadas y descarta duplicados, limpiando superposiciones originadas por múltiples registros en un mismo lugar.
+  3.  **Corte Geométrico (Substringing):** Utiliza los largos totales proyectados (`st_length`) y los divide por el `space.gap` para obtener fracciones de inicio y fin ($s, e$). Luego aplica `st_linesubstring` para cortar la malla real en fragmentos exactos (`small.pieces`).
+  4.  **Asignación (Nearest Feature):** Cruza los puntos proyectados con los fragmentos diminutos generados, asignando el identificador espacial definitivo.
+
+- **Ruta B: Procesamiento de Líneas (Intersección por Grilla)**
+  1.  **Proyección Base:** Transforma la topología a un sistema proyectado métrico (EPSG:3857).
+  2.  **Grilla Dinámica:** Genera un tapiz de polígonos rectangulares (`st_make_grid`) cuyo tamaño es regulado por el `space.gap` y ajustado por la tolerancia angular.
+  3.  **Corte Físico:** Ejecuta una intersección topológica estricta (`st_intersection`) entre las líneas de los vehículos y la grilla. Esto fractura las líneas largas exactamente en los bordes de cada celda.
+  4.  **Ponderación:** Se calcula el largo residual de cada fragmento atrapado en la celda para utilizarlo como peso matemático.
+
+### Fase 3: Agregación Topológica y Numérica
+
+1. Mediante programación de datos ultra-rápida (`data.table`), los datos se agrupan por sus tres identificadores clave (entidad, fragmento de tiempo, fragmento de espacio).
+2. Se aplica la función de compilación numérica configurada.
+3. Se unifican o cosen los fragmentos geométricos topológicamente (`st_combine` $\to$ `st_line_merge` o herencia directa).
+4. El objeto final es formateado, se descartan los artefactos nulos espaciales, se reproyecta a la norma estándar (WGS84 / EPSG:4326) y se retorna el cuerpo espacial completo.
 
 ## Ejemplos
 
 ### Ejemplo Rutas de Waze
 
 ```{r discretization.example, eval=FALSE}
+line.to.polygon <- function(line, thickness = 2) {
+  projected.line <- line %>% st_transform(crs = 3857)
+  distance <- thickness / 2
+  polygon <- projected.line %>% st_buffer(
+    dist = distance,
+    endCapStyle = "FLAT",
+    joinStyle = "MITRE"
+  ) %>% st_transform(crs = 4326)
+  return(polygon)
+}
 degrees.format <- function(deg, sec.decimals = 2) {
   pos <- deg %>% abs()
   degrees <- (pos %>% floor() * deg %>% sign()) %>% as.integer()
@@ -5059,7 +4964,8 @@ filtered.waze.routes.lines <- filtered.waze.routes %>%
   create.lines()
 filtered.waze.routes.polygons <- filtered.waze.routes %>%
   create.bbox.polygons()
-sg <- 100
+sg <- 10
+max.sg <- 200
 tg <- 300
 start.sys <- Sys.time()
 discretization.example <- quantum.data(
@@ -5068,9 +4974,7 @@ discretization.example <- quantum.data(
   field.data = filtered.waze.routes.lines$speed,
   names.data = paste(filtered.waze.routes.lines$section.name, "-", filtered.waze.routes.lines$section.dir),
   space.gap = sg,
-  time.gap = tg,
-  street.aligned = T,
-  street.angle.tolerance = pi / 6
+  time.gap = tg
 ) %>%
   arrange(time.bin) %>%
   mutate(
@@ -5080,6 +4984,8 @@ end.sys <- Sys.time()
 dt.sys <- end.sys - start.sys
 
 discretization.example %>% saveRDS(file = "~/GitHub/data-sets-analysis/rds-files/discretization.example.rds")
+
+#discretization.example <- readRDS(file = "~/GitHub/data-sets-analysis/rds-files/discretization.example.rds")
 
 ui <- fluidPage(
   titlePanel("Mapa con Filtro de Tiempo"),
@@ -5098,6 +5004,15 @@ ui <- fluidPage(
             animate = T,
             width = "100%",
             timezone = "+0000"
+          ),
+          sliderInput(
+            "space.agg",
+            "Resolución Espacial (metros):",
+            min = sg,
+            max = max.sg,
+            value = max.sg / 2,
+            step = sg,
+            width = "100%"
           )
         )
       )
@@ -5111,27 +5026,164 @@ ui <- fluidPage(
   )
 )
 
+base.grid.global.waze <- filtered.waze.routes.lines.0 %>%
+  ungroup() %>%
+  mutate(route.id = paste(section.name, "-", section.dir)) %>%
+  group_by(route.id) %>%
+  summarise(
+    geometry = geometry %>% st_union() %>% st_line_merge(),
+    .groups = "drop"
+  ) %>%
+  st_as_sf() %>%
+  st_collection_extract("LINESTRING") %>%
+  st_cast("MULTILINESTRING", warn = F) %>%
+  st_cast("LINESTRING", warn = F) %>%
+  mutate(
+    startX = purrr::map_dbl(geometry, ~st_coordinates(.x)[1, 1])
+  ) %>%
+  group_by(route.id) %>%
+  mutate(
+    sort.score = st_distance(geometry, geometry[which.min(startX)])[,1] %>% as.numeric()
+  ) %>%
+  arrange(route.id, sort.score) %>%
+  mutate(
+    physical.part = row_number(),
+    base.id = paste(route.id, "Part", physical.part, sep = "_")
+  ) %>%
+  ungroup() %>%
+  select(-startX, -sort.score) %>%
+  st_transform(crs = 32718) %>%
+  mutate(
+    total.len = geometry %>% st_length() %>% as.numeric(),
+    cuts = purrr::map(total.len, function(l){
+      if(l <= sg) return(data.frame(s = 0, e = 1))
+      dists <- seq(0, l, by = sg)
+      if(dists[length(dists)] < l) dists <- c(dists, l)
+      fracs <- dists / l
+      data.frame(s = fracs[-length(fracs)], e = fracs[-1])
+    })
+  ) %>%
+  tidyr::unnest(cuts) %>%
+  mutate(
+    geom = purrr::pmap(list(geometry, s, e), function(g, s, e) lwgeom::st_linesubstring(g, s, e)) %>% st_sfc(crs = 32718)
+  ) %>%
+  st_drop_geometry() %>%
+  st_as_sf(sf_column_name = "geom") %>%
+  mutate(
+    len = geom %>% st_length() %>% as.numeric()
+  ) %>%
+  st_transform(crs = 4326) %>%
+  rename(geometry = geom) %>%
+  group_by(base.id) %>%
+  mutate(
+    piece.idx = row_number(),
+    piece.id = paste(base.id, piece.idx, sep = "_")
+  ) %>%
+  ungroup() %>%
+  select(-total.len, -s, -e, -physical.part)
+
+discretization.example.sync <- discretization.example %>%
+  mutate(centroid = geometry %>% st_centroid()) %>%
+  split(.$name) %>%
+  lapply(function(df) {
+    route.name <- df$name[1] %>% as.character()
+    sub.grid <- base.grid.global.waze %>% filter(route.id == route.name)
+    if(sub.grid %>% nrow() > 0) {
+      near.idx <- st_nearest_feature(df$centroid, sub.grid)
+      df$piece.id <- sub.grid$piece.id[near.idx]
+      return(df)
+    }
+    return(NULL)
+  }) %>%
+  dplyr::bind_rows() %>%
+  st_as_sf() %>%
+  select(-centroid)
+
 server <- function(input, output, options){
   pal <- colorNumeric(
-    palette = c("#F00", "#FF0", "#0F0", "#0FF", "#00F", "#F0F"),
+    palette = c("#800", "#840", "#880", "#480", "#080", "#084", "#088", "#048", "#008", "#408", "#808"),
     domain = discretization.example$compiled.field
   )
-  sd <- filtered.waze.routes %>% SharedData$new()
+  r.mapping <- reactive({
+    input$space.agg %>% req()
+    mapping <- base.grid.global.waze %>%
+      st_drop_geometry() %>%
+      select(piece.id, route.id, len) %>%
+      mutate(
+        part.idx = stringr::str_extract(piece.id, "(?<=_Part_)\\d+") %>% as.numeric(),
+        piece.idx = stringr::str_extract(piece.id, "\\d+$") %>% as.numeric()
+      ) %>%
+      arrange(route.id, part.idx, piece.idx) %>%
+      group_by(route.id) %>%
+      mutate(
+        cum.dist = len %>% cumsum() - (len / 2),
+        agg.idx = cum.dist %/% input$space.agg,
+        base.id = paste(route.id, "Part", part.idx, sep = "_"),
+        new.space.bin = paste(route.id, agg.idx, sep = "_agg_")
+      ) %>%
+      ungroup() %>%
+      select(piece.id, route.id, base.id, new.space.bin, agg.idx, cum.dist)
+    return(mapping)
+  })
+  r.agg.grid <- reactive({
+    mapping <- r.mapping()
+    agg.grid <- base.grid.global.waze %>%
+      inner_join(mapping, by = c("piece.id", "route.id", "base.id")) %>%
+      arrange(route.id, cum.dist) %>%
+      group_by(route.id, base.id, new.space.bin, agg.idx) %>%
+      summarise(
+        geometry = {
+          coords <- (geometry %>% st_coordinates())[, 1:2]
+          dups <- c(F, coords %>% diff() %>% abs() %>% rowSums() < 1e-6)
+          list(coords[!dups, ] %>% st_linestring())
+        },
+        .groups = "drop"
+      ) %>%
+      mutate(geometry = geometry %>% st_sfc(crs = 4326)) %>%
+      st_as_sf()
+    return(agg.grid)
+  })
   f.data <- reactive({
     input$time.range %>% req()
-    discretization.example %>%
-      filter(time.bin >= input$time.range[1] & time.bin <= input$time.range[2]) %>%
-      group_by(geometry, name) %>%
+    grid <- r.agg.grid()
+    mapping <- r.mapping()
+    filtered.disc <- discretization.example.sync %>%
+      st_drop_geometry() %>%
+      filter(
+        time.bin >= input$time.range[1] & 
+        time.bin <= input$time.range[2]
+      ) %>%
+      inner_join(mapping, by = "piece.id") %>%
+      group_by(new.space.bin) %>%
       summarise(
-        field = compiled.field %>% mean(),
-        geometry = geometry %>% first(),
-        time.info = paste(time.bin %>% min() %>% format(., "%H:%M"), "-", time.bin %>% max() %>% format(., "%H:%M")),
-        date.info =  ifelse(time.bin %>% min() %>% format(., "%Y-%m-%d") == time.bin %>% max() %>% format(., "%Y-%m-%d"), time.bin %>% min() %>% format(., "%Y-%m-%d"), paste(time.bin %>% min() %>% format(., "%Y-%m-%d"), "-", time.bin %>% max() %>% format(., "%Y-%m-%d"))),
-        time.bin = time.bin %>% range(na.rm = T) %>% mean(na.rm = T),
-        space.bin = space.bin %>% first(),
-        name = name %>% first(),
-        .groups = 'drop'
+        field = compiled.field %>% weighted.mean(w = lenght %>% as.numeric(), na.rm = T),
+        time.info = paste(time.bin %>% min() %>% format("%H:%M"), "-", time.bin %>% max() %>% format("%H:%M")),
+        date.info = ifelse(
+          time.bin %>% min() %>% format("%Y-%m-%d") == time.bin %>% max() %>% format("%Y-%m-%d"),
+          time.bin %>% min() %>% format("%Y-%m-%d"),
+          paste(time.bin %>% min() %>% format("%Y-%m-%d"), "-", time.bin %>% max() %>% format("%Y-%m-%d"))
+        ),
+        .groups = "drop"
       )
+    active.routes <- filtered.disc$new.space.bin %>% stringr::str_replace("_agg_\\d+$", "") %>% unique()
+    final.data <- grid %>%
+      filter(route.id %in% active.routes) %>%
+      left_join(filtered.disc, by = "new.space.bin") %>%
+      group_by(route.id) %>%
+      arrange(agg.idx, .by_group = T) %>%
+      mutate(
+        field = if(sum(!is.na(field)) > 1) {
+          field %>% zoo::na.approx(na.rm = F, rule = 2)
+        } else {
+          field %>% mean(na.rm = T)
+        },
+        street.name = stringr::str_split_i(route.id, " - ", 1),
+        section.dir = stringr::str_split_i(route.id, " - ", 2) 
+      ) %>%
+      tidyr::fill(time.info, date.info, .direction = "downup") %>%
+      ungroup() %>%
+      st_as_sf()
+    return(final.data)
   })
   output$map <- renderLeaflet({
     leaflet() %>%
@@ -5149,66 +5201,85 @@ server <- function(input, output, options){
   })
   observe({
     proxy <- leafletProxy("map") %>% clearShapes()
-    proxy %>%
-      addPolylines(
-        data = f.data(),
-        color = ~pal(field),
-        group = ~name %>% str_split_i(., " - ", 2),
-        popup = ~paste(
-          paste("Tramo:", name),
-          paste("Fecha:", date.info),
-          paste("Hora:", time.info),
-          paste("Velocidad:", (field * 18 / 5) %>% round(2), "km/h"),
-          sep = "<br>"
-        ),
-        opacity = 1
-      )
+    updated.data <- f.data()
+    if(updated.data %>% nrow() > 0){
+      updated.polygons <- updated.data %>% 
+        mutate(geometry = geometry %>% line.to.polygon(thickness = 7.5)) %>% 
+        st_as_sf()
+      updated.data %>% saveRDS(file = "~/GitHub/data-sets-analysis/rds-files/updated.data.rds")
+      proxy %>%
+        addPolylines(
+          data = updated.data,
+          color = ~field %>% pal(),
+          group = ~section.dir,
+          popup = ~paste(
+            paste("Fecha:", date.info),
+            paste("Hora:", time.info),
+            paste("Velocidad:", (field * 18 / 5) %>% round(2), "km/h"),
+            paste("Largo:", geometry %>% st_transform(crs = 32718) %>% st_length() %>% as.numeric() %>% round(2), "m"),
+            sep = "<br>"
+          ),
+          opacity = 1
+        ) %>%
+        addPolygons(
+          data = updated.polygons,
+          group = ~section.dir,
+          fill = F,
+          color = "black",
+          weight = 1.5
+        )
+    }
   })
 }
 
 shinyApp(ui, server)
 ```
 
+
+```{r discretization.example, eval=FALSE}
+readRDS(file = "~/GitHub/data-sets-analysis/rds-files/updated.data.rds") %>%
+  mutate(
+    len = geometry %>% st_length()
+  ) %>%
+  View()
+```
+
 ### Ejemplo GPS
 
 ```{r discretization.example.1 eval=FALSE}
-tg.1 <- 300
-sg.1 <- 100
-
-line.to.polygon <- function(line, thickness = 2) {
-  #if(!inherits(line, c("sf, sfc"))) stop("The input 'line' must be an sf or sfc object (LINESTRING or MULTILINESTRING)")
-  projected.line <- line %>% st_transform(crs = 3857)
-  distance <- thickness / 2
-  polygon <- projected.line %>% st_buffer(
-    dist = distance,
-    endCapStyle = "FLAT",
-    joinStyle = "MITRE"
-  ) %>% st_transform(crs = 4326)
-  return(polygon)
-}
-
 gps.streets <- get.street(
   lng.data = gps.data.df$Longitud,
   lat.data = gps.data.df$Latitud
 )
 
+gps.streets %>% saveRDS(file = "~/GitHub/data-sets-analysis/rds-files/gps.streets.rds")
+
+#gps.streets <- readRDS(file = "~/GitHub/data-sets-analysis/rds-files/gps.streets.rds")
+
+is.in.carrera <- gps.streets$street.name %in% c("Avenida Los Carrera", "Avenida Los Carrera Poniente")
+filtered.gps.data <- gps.data.df[is.in.carrera,]
+filtered.gps.streets <- gps.streets[is.in.carrera,]
+```
+
+
+```{r discretization.example.1 eval=FALSE}
+tg.1 <- 60
+sg.1 <- 10
+max.sg.1 <- 200
+
 discretization.example.1 <- quantum.data(
-  time.data = gps.data.df$Fecha,
-  lng.data = gps.data.df$Longitud,
-  lat.data = gps.data.df$Latitud,
-  field.data = gps.data.df$`Velocidad Km/h`,
-  names.data = gps.data.df$Vehiculo,
-  street.aligned = T,
+  time.data = filtered.gps.data$Fecha,
+  lng.data = filtered.gps.data$Longitud,
+  lat.data = filtered.gps.data$Latitud,
+  field.data = filtered.gps.data$`Velocidad Km/h`,
+  names.data = filtered.gps.data$Vehiculo,
   time.gap = tg.1,
   space.gap = sg.1
 )
 
-base.grid <- discretization.example.1 %>%
-  as.data.frame() %>%
-  select(street.name, lane.id, space.bin, geometry) %>%
-  filter(!is.na(lane.id)) %>%
-  distinct(lane.id, space.bin, .keep_all = T) %>%
-  st_as_sf()
+discretization.example.1 %>% saveRDS(file = "~/GitHub/data-sets-analysis/rds-files/discretization.example.1.rds")
+
+#discretization.example.1 <- readRDS(file = "~/GitHub/data-sets-analysis/rds-files/discretization.example.1.rds")
 
 ui.1 <- fluidPage(
   titlePanel("Mapa con Filtro de Tiempo y Vehículos"),
@@ -5233,6 +5304,15 @@ ui.1 <- fluidPage(
             choices = discretization.example.1$name %>% levels(),
             selected = discretization.example.1$name %>% levels(),
             inline = T
+          ),
+          sliderInput(
+            "space.agg",
+            "Resolución Espacial (metros):",
+            min = sg.1,
+            max = max.sg.1,
+            value = max.sg.1 / 2,
+            step = sg.1,
+            width = "100%"
           )
         )
       )
@@ -5246,17 +5326,49 @@ ui.1 <- fluidPage(
   )
 )
 
+base.grid.global <- filtered.gps.streets %>%
+  ungroup() %>%
+  st_drop_geometry() %>%
+  st_as_sf(sf_column_name = "street.geom") %>%
+  rename(geometry = street.geom) %>%
+  distinct(street.name, lane.id, .keep_all = T) %>%
+  select(street.name, lane.id) %>%
+  st_collection_extract("LINE") %>%
+  st_cast("MULTILINESTRING", warn = F) %>%
+  st_cast("LINESTRING", warn = F) %>%
+  mutate(fragment.id = paste(lane.id, row_number(), sep = "_")) %>%
+  st_transform(crs = 3857) %>%
+  mutate(
+    len = geometry %>% st_length() %>% as.numeric(),
+    cuts = purrr::map(len, function(l){
+      if(l <= sg.1) return(data.frame(s = 0, e = 1))
+      dists <- seq(0, l, by = sg.1)
+      if(dists[dists %>% length()] < l) dists <- c(dists, l)
+      fracs <- dists / l
+      data.frame(s = fracs[-length(fracs)], e = fracs[-1])
+    })
+  ) %>%
+  tidyr::unnest(cuts) %>%
+  mutate(
+    geom = purrr::pmap(list(geometry, s, e), function(g, s, e) lwgeom::st_linesubstring(g, s, e)) %>% st_sfc(crs = 3857)
+  ) %>%
+  st_drop_geometry() %>%
+  st_as_sf(sf_column_name = "geom") %>%
+  rename(geometry = geom) %>%
+  st_transform(crs = 4326) %>%
+  mutate(piece.id = paste(fragment.id, row_number(), sep = "_"))
+
 server.1 <- function(input, output, options){
   pal <- colorNumeric(
-    palette = c("#F00", "#FF0", "#0F0", "#0FF", "#00F", "#F0F"),
+    palette = c("#800", "#880", "#080", "#088", "#008", "#808"),
     domain = discretization.example.1$compiled.field
   )
   f.points.centered <- reactive({
     input$time.range %>% req()
     (input$selected.vehicles %>% length() > 0) %>% req()
-    gps.streets %>% mutate(
-      Fecha = gps.data.df$Fecha,
-      Vehiculo = gps.data.df$Vehiculo
+    filtered.gps.streets %>% mutate(
+      Fecha = filtered.gps.data$Fecha,
+      Vehiculo = filtered.gps.data$Vehiculo
     ) %>% filter(
       Fecha >= input$time.range[1] &
       Fecha <= input$time.range[2] &
@@ -5266,7 +5378,7 @@ server.1 <- function(input, output, options){
   f.points <- reactive({
     input$time.range %>% req()
     (input$selected.vehicles %>% length() > 0) %>% req()
-    gps.data.df %>% filter(
+    filtered.gps.data %>% filter(
       Fecha >= input$time.range[1] &
       Fecha <= input$time.range[2] &
       Vehiculo %in% input$selected.vehicles
@@ -5275,78 +5387,62 @@ server.1 <- function(input, output, options){
   f.data <- reactive({
     input$time.range %>% req()
     (input$selected.vehicles %>% length() > 0) %>% req()
-    real.data <- discretization.example.1 %>%
+    input$space.agg %>% req()
+    agg.factor <- c(1, (input$space.agg / sg.1) %>% round()) %>% max()
+    agg.grid <- base.grid.global %>%
+      mutate(
+        piece.idx = stringr::str_extract(piece.id, "\\d+$") %>% as.numeric(),
+        stable.id = stringr::str_replace(piece.id, "_\\d+_", "_"),
+        base.id = stringr::str_replace(stable.id, "_\\d+$", ""),
+        agg.idx = (piece.idx - 1) %/% agg.factor,
+        new.space.bin = paste(base.id, agg.idx, sep = "_agg_")
+      ) %>%
+      group_by(base.id, new.space.bin, agg.idx) %>%
+      summarise(
+        geometry = geometry %>% st_combine() %>% st_line_merge(),
+        .groups = "drop"
+      ) %>%
+      st_as_sf()
+    filtered.disc <- discretization.example.1 %>%
+      st_drop_geometry() %>%
       filter(
         time.bin >= input$time.range[1] & 
         time.bin <= input$time.range[2] &
-        name %in% input$selected.vehicles
+        name %>% as.character() %in% input$selected.vehicles
       ) %>%
-      group_by(space.bin, lane.id, street.name) %>%
+      mutate(
+        space.bin.str = space.bin %>% as.character(),
+        piece.idx = stringr::str_extract(space.bin.str, "\\d+$") %>% as.numeric(),
+        stable.id = stringr::str_replace(space.bin.str, "_\\d+_", "_"),
+        base.id = stringr::str_replace(stable.id, "_\\d+$", ""),
+        agg.idx = (piece.idx - 1) %/% agg.factor,
+        new.space.bin = paste(base.id, agg.idx, sep = "_agg_")
+      ) %>%
+      group_by(new.space.bin) %>%
       summarise(
-        field = compiled.field %>% mean(na.rm = T),
-        geometry = geometry %>% first(),
+        field = compiled.field %>% weighted.mean(w = lenght %>% as.numeric(), na.rm = T),
         vehicles.involved = paste(name %>% unique(), collapse = ", "),
-        time.info = paste(time.bin %>% min() %>% format(., "%H:%M"), "-", time.bin %>% max() %>% format(., "%H:%M")),
+        time.info = paste(time.bin %>% min() %>% format("%H:%M"), "-", time.bin %>% max() %>% format("%H:%M")),
         date.info =  ifelse(
-          time.bin %>% min() %>% format(., "%Y-%m-%d") == time.bin %>% max() %>% format(., "%Y-%m-%d"),
-          time.bin %>% min() %>% format(., "%Y-%m-%d"),
-          paste(time.bin %>% min() %>% format(., "%Y-%m-%d"), "-", time.bin %>% max() %>% format(., "%Y-%m-%d"))),
-        .groups = 'drop'
-      ) %>% st_as_sf()
-    unnamed.data <- real.data %>% filter(lane.id %>% is.na())
-    named.real <- real.data %>% filter(!is.na(lane.id))
-    active.lanes <- named.real$lane.id %>% unique()
-    if(active.lanes %>% length() > 0) {
-      interpolated.data <- base.grid %>%
-        filter(lane.id %in% active.lanes) %>%
-        arrange(lane.id, space.bin) %>%
-        left_join(named.real %>% as.data.frame() %>% select(-geometry), by = c("lane.id", "space.bin", "street.name")) %>%
-        group_by(lane.id) %>%
-        mutate(
-          field = {
-            valid <- !is.na(field)
-            n.valid <- valid %>% sum()
-            if (n.valid >= 2) {
-              approx(x = space.bin[valid], y = field[valid], xout = space.bin, rule = 2)$y 
-            } else if (n.valid == 1) {
-              rep(field[valid], n())
-            } else {
-              field
-            }
-          },
-          vehicles.involved = ifelse(vehicles.involved %>% is.na() & !is.na(field), "Interpolado", vehicles.involved),
-          time.info = ifelse(time.info %>% is.na() & !is.na(field), "Interpolado", time.info),
-          date.info = ifelse(date.info %>% is.na() & !is.na(field), "Interpolado", date.info)
-        ) %>%
-        filter(!is.na(field)) %>%
-        ungroup() %>%
-        st_as_sf()
-      interpolated.data <- interpolated.data %>%
-        arrange(lane.id, space.bin) %>%
-        group_by(lane.id) %>%
-        mutate(next.geom = geometry %>% lead()) %>%
-        ungroup()
-      bridged.geoms <- purrr::map2(interpolated.data$geometry, interpolated.data$next.geom, function(g1, g2) {
-        if(g2 %>% is.null() || g2 %>% length() == 0) return(g1)
-        c1 <- g1 %>% st_coordinates()
-        c2 <- g2 %>% st_coordinates()
-        if(c1 %>% nrow() == 0 || c2 %>% nrow() == 0) return(g1)
-        p1 <- c1[nrow(c1), c("X", "Y")]
-        p2 <- c2[1, c("X", "Y")]
-        dist <- sqrt((p1["X"] - p2["X"])^2 + (p1["Y"] - p2["Y"])^2)
-        if(dist > 0.00005 && dist < 0.03) {
-          bridge <- rbind(p1, p2) %>% st_linestring()
-          return(st_union(g1, bridge))
-        } else {
-          return(g1)
-        }
-      }) %>% st_sfc(crs = 4326)
-      interpolated.data$geometry <- bridged.geoms
-      interpolated.data <- interpolated.data %>% select(-next.geom) %>% st_sf()
-      final.data <- bind_rows(interpolated.data, unnamed.data) %>% st_as_sf()
-    } else {
-      final.data <- unnamed.data
-    }
+          time.bin %>% min() %>% format("%Y-%m-%d") == time.bin %>% max() %>% format("%Y-%m-%d"),
+          time.bin %>% min() %>% format("%Y-%m-%d"),
+          paste(time.bin %>% min() %>% format("%Y-%m-%d"), "-", time.bin %>% max() %>% format("%Y-%m-%d"))),
+        street.name = new.space.bin %>% stringr::str_split_i("_", 1),
+        .groups = "drop"
+      )
+    active.bases <- filtered.disc$new.space.bin %>% stringr::str_replace("_agg_\\d+$", "") %>% unique()
+    final.data <- agg.grid %>%
+      filter(base.id %in% active.bases) %>%
+      left_join(filtered.disc, by = "new.space.bin") %>%
+      group_by(base.id) %>%
+      arrange(agg.idx, .by_group = T) %>%
+      mutate(
+        field = zoo::na.approx(field, na.rm = F, rule = 2),
+        street.name = base.id %>% stringr::str_split_i("_", 1)
+      ) %>%
+      tidyr::fill(vehicles.involved, time.info, date.info, .direction = "downup") %>%
+      ungroup() %>%
+      st_as_sf()
     return(final.data)
   })
   output$map <- renderLeaflet({
@@ -5358,7 +5454,7 @@ server.1 <- function(input, output, options){
         lat = gps.data.df$Latitud %>% mean(na.rm = T),
         zoom = 12
       ) %>% addLayersControl(
-        overlayGroups = c("Calles", "Puntos Originales", "Puntos Centrados", "Celdas")
+        overlayGroups = c("Calles", "Celdas", "Puntos Originales", "Puntos Centrados")
       )
   })
   observe({
@@ -5366,9 +5462,22 @@ server.1 <- function(input, output, options){
     updated.data <- f.data()
     filtered.gps.data.df <- f.points()
     centered.points <- f.points.centered()
+    if(filtered.gps.data.df %>% nrow() > 0){
+        proxy %>%
+          addCircles(
+            data = filtered.gps.data.df,
+            group = "Puntos Originales",
+            color = "red", opacity = 1, lng = ~Longitud, lat = ~Latitud, radius = 1
+          ) %>% 
+          addCircles(
+            data = centered.points,
+            group = "Puntos Centrados",
+            color = "blue", opacity = 1, lng = ~lng.street, lat = ~lat.street, radius = 1
+          )
+    }
     if(updated.data %>% nrow() > 0){
       updated.polygons <- updated.data %>% 
-        mutate(geometry = geometry %>% line.to.polygon(thickness = 5)) %>% 
+        mutate(geometry = geometry %>% line.to.polygon(thickness = 7.5)) %>% 
         st_as_sf()
       proxy %>%
         addPolylines(
@@ -5377,38 +5486,21 @@ server.1 <- function(input, output, options){
           group = "Calles",
           popup = ~paste(
             paste("Vehículos:", vehicles.involved),
-            paste("Calle:", ifelse(is.na(street.name), NA, street.name)),
-            paste("ID Carril:", lane.id),
+            paste("Calle:", street.name),
+            paste("Largo:", geometry %>% st_transform(crs = 3857) %>% st_length() %>% as.numeric() %>% round(2), "m"),
             paste("Fecha:", date.info),
             paste("Hora:", time.info),
             paste("Velocidad:", field %>% round(2), "km/h"),
             sep = "<br>"
           ),
-          opacity = 0.8
+          opacity = 1
         ) %>%
         addPolygons(
           data = updated.polygons,
           fill = F,
           color = "black",
-          group = "Celdas"
-        ) %>% 
-        addCircles(
-          data = filtered.gps.data.df,
-          group = "Puntos Originales",
-          color = "red",
-          opacity = 1,
-          lng = ~Longitud,
-          lat = ~Latitud,
-          radius = 1
-        ) %>% 
-        addCircles(
-          data = centered.points,
-          group = "Puntos Centrados",
-          color = "darkgreen",
-          opacity = 1,
-          lng = ~lng.street,
-          lat = ~lat.street,
-          radius = 1
+          group = "Celdas",
+          weight = 1.5
         )
     }
   })
@@ -5501,7 +5593,7 @@ erDiagram
         VARCHAR(255) name
     }
 
-    route_name {
+    route.name {
         INTEGER id "PK AI"
         VARCHAR(255) name
     }
@@ -5678,7 +5770,7 @@ erDiagram
     alert ||--|{ injury : alert_id
     injury_level ||--|{ injury : level_id
     injury_place ||--|{ injury : place_id
-    route_name ||--|{ waze_route : name_id
+    route.name ||--|{ waze_route : name_id
     route_type ||--|{ waze_route : type_id
     route_point }|--|| waze_route : route_id
     waze_route ||--|{ alert : waze_route_id
@@ -5775,7 +5867,7 @@ CREATE TABLE IF NOT EXISTS alert_cause (
   name VARCHAR(255)
 )
 
-CREATE TABLE IF NOT EXISTS route_name (
+CREATE TABLE IF NOT EXISTS route.name (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name VARCHAR(255)
 )
@@ -5791,7 +5883,7 @@ CREATE TABLE IF NOT EXISTS waze_route (
   date DATETIME,
   historic_time FLOAT,
   from_id INTEGER REFERENCES street(id),
-  name_id INTEGER REFERENCES route_name(id),
+  name_id INTEGER REFERENCES route.name(id),
   to_id INTEGER REFERENCES street(id),
   length FLOAT,
   time FLOAT,
